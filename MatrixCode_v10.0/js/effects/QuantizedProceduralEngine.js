@@ -1858,7 +1858,7 @@ class _QuantizedProceduralEngine {
                 bsd.enabled = this._getGenConfig('BlockSpawnerEnabled') ?? false;
                 bsd.type = this._getGenConfig('BlockSpawnerBehaviorType') ?? 'pool';
                 bsd.growth = this._getGenConfig('BlockSpawnerGrowthMode') ?? 'edge';
-                bsd.bias = this._getGenConfig('BlockSpawnerSpawnBias') ?? 'single';
+                bsd.bias = this._getGenConfig('BlockSpawnerSpawnBias') ?? 'smaller';
             }
             const sn = this.growthPool.get('spreading_nudge');
             if (sn) {
@@ -1878,8 +1878,6 @@ class _QuantizedProceduralEngine {
             if (hf) {
                 hf.enabled = true;
                 hf.type = this._getGenConfig('HoleFillerBehaviorType') ?? 'pool';
-                hf.growth = this._getGenConfig('HoleFillerGrowthMode') ?? 'edge';
-                hf.bias = this._getGenConfig('HoleFillerSpawnBias') ?? 'single';
             }
             const bt = this.growthPool.get('block_thicken');
             if (bt) {
@@ -1975,10 +1973,10 @@ class _QuantizedProceduralEngine {
                     // Shuffle for spawn diversity — prevents always picking the same closest parents
                     Utils.shuffle(perimeterBlocks);
 
-                    const sizes = [
-                        {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1},
-                        {w: 1, h: 3}, {w: 3, h: 1}
-                    ];
+                    const bias = behavior ? behavior.bias : 'smaller';
+                    const sizes = bias === 'larger'
+                        ? [{w: 1, h: 3}, {w: 3, h: 1}, {w: 1, h: 4}, {w: 4, h: 1}, {w: 2, h: 2}]
+                        : [{w: 1, h: 1}, {w: 1, h: 1}, {w: 1, h: 2}, {w: 2, h: 1}];
 
                     let spawnedCount = 0;
                     for (let i = 0; i < maxSpawn * 2 && spawnedCount < maxSpawn; i++) {
@@ -2080,6 +2078,49 @@ class _QuantizedProceduralEngine {
                     if (count === 2) {
                         if ((north && south) || (west && east)) return false; // Opposite edges (bridge/line)
                     }
+
+                    // --- ISLAND PREVENTION ---
+                    // Check that each neighbor block touching this one has at least one OTHER
+                    // adjacent block, so removing this one won't leave it as an island.
+                    const neighborBlocks = this.activeBlocks.filter(nb => {
+                        if (nb === b || nb.layer !== layer) return false;
+                        // Does nb touch b on any edge?
+                        const touchN = (nb.y + nb.h === b.y) && (nb.x < b.x + b.w) && (nb.x + nb.w > b.x);
+                        const touchS = (nb.y === b.y + b.h) && (nb.x < b.x + b.w) && (nb.x + nb.w > b.x);
+                        const touchW = (nb.x + nb.w === b.x) && (nb.y < b.y + b.h) && (nb.y + nb.h > b.y);
+                        const touchE = (nb.x === b.x + b.w) && (nb.y < b.y + b.h) && (nb.y + nb.h > b.y);
+                        return touchN || touchS || touchW || touchE;
+                    });
+                    for (const nb of neighborBlocks) {
+                        // Check if nb has any OTHER neighbor besides b
+                        let hasOther = false;
+                        // Check nb's 4 edges for occupied cells not belonging to b
+                        // North edge of nb
+                        for (let x = nb.x; x < nb.x + nb.w && !hasOther; x++) {
+                            const cy = nb.y - 1;
+                            if (cy >= b.y && cy < b.y + b.h && x >= b.x && x < b.x + b.w) continue; // Part of b
+                            if (this._isOccupied(x, cy, layer)) hasOther = true;
+                        }
+                        // South edge of nb
+                        for (let x = nb.x; x < nb.x + nb.w && !hasOther; x++) {
+                            const cy = nb.y + nb.h;
+                            if (cy >= b.y && cy < b.y + b.h && x >= b.x && x < b.x + b.w) continue;
+                            if (this._isOccupied(x, cy, layer)) hasOther = true;
+                        }
+                        // West edge of nb
+                        for (let y = nb.y; y < nb.y + nb.h && !hasOther; y++) {
+                            const cx = nb.x - 1;
+                            if (y >= b.y && y < b.y + b.h && cx >= b.x && cx < b.x + b.w) continue;
+                            if (this._isOccupied(cx, y, layer)) hasOther = true;
+                        }
+                        // East edge of nb
+                        for (let y = nb.y; y < nb.y + nb.h && !hasOther; y++) {
+                            const cx = nb.x + nb.w;
+                            if (y >= b.y && y < b.y + b.h && cx >= b.x && cx < b.x + b.w) continue;
+                            if (this._isOccupied(cx, y, layer)) hasOther = true;
+                        }
+                        if (!hasOther) return false; // Removing b would isolate nb
+                    }
                     return true;
                 });
                 
@@ -2093,7 +2134,7 @@ class _QuantizedProceduralEngine {
                     }
                 }
             }
-        }, { enabled: this._getGenConfig('BlockSpawnerEnabled') ?? false, type: this._getGenConfig('BlockSpawnerBehaviorType') ?? 'pool', growth: this._getGenConfig('BlockSpawnerGrowthMode') ?? 'edge', bias: this._getGenConfig('BlockSpawnerSpawnBias') ?? 'single', label: 'Block Spawner/Despawner' });
+        }, { enabled: this._getGenConfig('BlockSpawnerEnabled') ?? false, type: this._getGenConfig('BlockSpawnerBehaviorType') ?? 'pool', growth: this._getGenConfig('BlockSpawnerGrowthMode') ?? 'edge', bias: this._getGenConfig('BlockSpawnerSpawnBias') ?? 'smaller', label: 'Block Spawner/Despawner' });
 
         this.registerBehavior('spreading_nudge', function(s, behavior, layer) {
             const stopAfter = this._getGenConfig('SpreadingNudgeStopAfter') ?? 0;
@@ -2113,9 +2154,9 @@ class _QuantizedProceduralEngine {
             if (!s[cyclesKey]) s[cyclesKey] = { 'V1': { step: 0, lastTempBlock: null }, 'V-1': { step: 0, lastTempBlock: null }, 'H1': { step: 0, lastTempBlock: null }, 'H-1': { step: 0, lastTempBlock: null } };
             if (!s[queueKey])  s[queueKey] = [];
 
-            const spawnSpeed   = this._getGenConfig('SpreadingNudgeSpawnSpeed') ?? 1;
-            const spreadDensity = this._getGenConfig('SpreadingNudgeRange') ?? 0.5;
-            const growthChance  = this._getGenConfig('SpreadingNudgeChance') ?? 0.8;
+            const spawnSpeed    = this._getGenConfig('SpreadingNudgeSpawnSpeed') ?? 1;
+            let   rangePct      = this._getGenConfig('SpreadingNudgeRange') ?? 50;
+            if (rangePct <= 1.0) rangePct = Math.round(rangePct * 100); // Migrate old 0.0-1.0 values
             const maxInstances  = this._getGenConfig('SpreadingNudgeMaxInstances') ?? 20;
             const preferSymmetry = this._getGenConfig('SpreadingNudgeSymmetry') ?? true;
 
@@ -2127,9 +2168,9 @@ class _QuantizedProceduralEngine {
             ];
 
             // 1. Process Symmetry Queue
-            if (s[`spreadingNudgeSymmetryQueue_${layer}`] && s[`spreadingNudgeSymmetryQueue_${layer}`].length > 0) {
+            if (s[queueKey] && s[queueKey].length > 0) {
                 const pending = [];
-                for (const item of s[`spreadingNudgeSymmetryQueue_${layer}`]) {
+                for (const item of s[queueKey]) {
                     if (s.step >= item.stepToSpawn) {
                         if (!allowed || allowed.has(item.dir) || (item.arm && allowed.has(item.arm))) {
                             const strip = this._createStrip(item.layer, item.dir, item.x, item.y);
@@ -2142,20 +2183,30 @@ class _QuantizedProceduralEngine {
                         pending.push(item);
                     }
                 }
-                s[`spreadingNudgeSymmetryQueue_${layer}`] = pending;
+                s[queueKey] = pending;
             }
 
             // 2. Perform Nudge Growth at Spreading Origins
-            const bs = this.getBlockSize();
-            // Use logic grid half-dimensions so nudge growth extends beyond the visible screen
-            const halfW = Math.floor(this.logicGridW / 2);
-            const halfH = Math.floor(this.logicGridH / 2);
+            // Range boundary: percentage of logic grid half-dimensions
+            const rangeScale = Math.max(0.05, rangePct / 100);
+            const halfW = Math.floor(this.logicGridW / 2 * rangeScale);
+            const halfH = Math.floor(this.logicGridH / 2 * rangeScale);
 
             // Count current active perpendicular "solid" strips for instance limiting
             let activePerpStrips = 0;
             for (const strip of this.strips.values()) {
                 if (strip.active && strip.bypassOccupancy && !strip.isNudge) activePerpStrips++;
             }
+
+            // Edge mode: compute outside map for exterior edge detection
+            const isEdgeMode = behavior && behavior.growth === 'edge';
+            let outsideMap = null;
+            if (isEdgeMode) {
+                outsideMap = s.outsideMap || this._computeTrueOutside(this.logicGridW, this.logicGridH);
+            }
+            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('SingleLayerMode'));
+            const targetL = usePromotion ? 1 : layer;
+            const gcx = this._gridCX, gcy = this._gridCY, gw = this.logicGridW, gh = this.logicGridH;
 
             arms.sort(() => Math.random() - 0.5);
 
@@ -2164,33 +2215,77 @@ class _QuantizedProceduralEngine {
                 if (allowed && !allowed.has(arm.dir)) continue;
 
                 // Check if it's time for this arm to advance
-                if (s.step >= (s[`spreadingNudgeNextSpawnStep_${layer}`][arm.key] || 0)) {
-                    let d = s[`spreadingNudgeNextDist_${layer}`][arm.key];
-                    const ax = arm.vert ? s.genOriginX : s.genOriginX + d * arm.side;
-                    const ay = arm.vert ? s.genOriginY + d * arm.side : s.genOriginY;
+                if (s.step >= (s[stepKey][arm.key] || 0)) {
+                    let ax, ay;
 
-                    // Boundary check
-                    if (Math.abs(ax - s.genOriginX) > halfW || Math.abs(ay - s.genOriginY) > halfH) {
-                        // Reach edge, stop this arm
-                        s[`spreadingNudgeNextSpawnStep_${layer}`][arm.key] = Infinity;
-                        continue;
+                    if (isEdgeMode) {
+                        // Edge mode: pick a random exterior block whose outward edge faces the arm direction
+                        const edgeCandidates = [];
+                        for (const b of this.activeBlocks) {
+                            if (b.layer !== targetL) continue;
+                            // Check if the block has an exterior edge in the arm's direction
+                            let hasExteriorEdge = false;
+                            if (arm.dir === 'S') {
+                                for (let x = b.x; x < b.x + b.w && !hasExteriorEdge; x++) {
+                                    const gx = gcx + x, gy = gcy + b.y + b.h;
+                                    if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) hasExteriorEdge = true;
+                                }
+                            } else if (arm.dir === 'N') {
+                                for (let x = b.x; x < b.x + b.w && !hasExteriorEdge; x++) {
+                                    const gx = gcx + x, gy = gcy + b.y - 1;
+                                    if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) hasExteriorEdge = true;
+                                }
+                            } else if (arm.dir === 'E') {
+                                for (let y = b.y; y < b.y + b.h && !hasExteriorEdge; y++) {
+                                    const gx = gcx + b.x + b.w, gy = gcy + y;
+                                    if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) hasExteriorEdge = true;
+                                }
+                            } else { // W
+                                for (let y = b.y; y < b.y + b.h && !hasExteriorEdge; y++) {
+                                    const gx = gcx + b.x - 1, gy = gcy + y;
+                                    if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) hasExteriorEdge = true;
+                                }
+                            }
+                            if (hasExteriorEdge) edgeCandidates.push(b);
+                        }
+                        if (edgeCandidates.length === 0) continue;
+                        const pick = edgeCandidates[Math.floor(Math.random() * edgeCandidates.length)];
+                        // Place arm origin on the exterior-facing edge of the picked block
+                        if (arm.vert) {
+                            ax = pick.x + Math.floor(Math.random() * pick.w);
+                            ay = (arm.side === 1) ? pick.y + pick.h - 1 : pick.y;
+                        } else {
+                            ax = (arm.side === 1) ? pick.x + pick.w - 1 : pick.x;
+                            ay = pick.y + Math.floor(Math.random() * pick.h);
+                        }
+                    } else {
+                        // Spine mode: advance from spine origin
+                        const d = s[distKey][arm.key];
+                        ax = arm.vert ? s.genOriginX : s.genOriginX + d * arm.side;
+                        ay = arm.vert ? s.genOriginY + d * arm.side : s.genOriginY;
+
+                        // Boundary check
+                        if (Math.abs(ax - s.genOriginX) > halfW || Math.abs(ay - s.genOriginY) > halfH) {
+                            s[stepKey][arm.key] = Infinity;
+                            continue;
+                        }
                     }
 
                     // Axial point growth (Harden/Nudge logic at the spreader head)
-                    const cycle = s[`spreadingNudgeCycles_${layer}`][arm.key];
+                    const cycle = s[cyclesKey][arm.key];
                     const { bw, bh } = this._calcBlockSize({ originX: ax, originY: ay, direction: arm.dir }, s.fillRatio);
-                    this._attemptNudgeGrowthWithParams(layer, bw, bh, ax, ay, cycle, growthChance);
+                    this._attemptNudgeGrowthWithParams(layer, bw, bh, ax, ay, cycle, null);
 
                     if (preferSymmetry) {
                         const mirAx = arm.vert ? ax : s.genOriginX - (ax - s.genOriginX);
                         const mirAy = arm.vert ? s.genOriginY - (ay - s.genOriginY) : ay;
-                        const mirCycle = s[`spreadingNudgeCycles_${layer}`][arm.key + '_mir'] || { step: 0, lastTempBlock: null };
-                        s[`spreadingNudgeCycles_${layer}`][arm.key + '_mir'] = mirCycle;
-                        this._attemptNudgeGrowthWithParams(layer, bw, bh, mirAx, mirAy, mirCycle, growthChance);
+                        const mirCycle = s[cyclesKey][arm.key + '_mir'] || { step: 0, lastTempBlock: null };
+                        s[cyclesKey][arm.key + '_mir'] = mirCycle;
+                        this._attemptNudgeGrowthWithParams(layer, bw, bh, mirAx, mirAy, mirCycle, null);
                     }
 
                     // Spawn perpendicular "solid" strips to fill the area
-                    if (activePerpStrips < maxInstances && Math.random() < spreadDensity) {
+                    if (activePerpStrips < maxInstances && Math.random() < 0.5) {
                         for (const dir of arm.perp) {
                             if (activePerpStrips >= maxInstances) break;
                             // RELAXATION: Allow spawning perp strips if the parent arm is allowed
@@ -2207,7 +2302,7 @@ class _QuantizedProceduralEngine {
                                 const mirX = arm.vert ? ax : s.genOriginX - (ax - s.genOriginX);
                                 const mirY = arm.vert ? s.genOriginY - (ay - s.genOriginY) : ay;
                                 const mirDir = dir === 'N' ? 'S' : (dir === 'S' ? 'N' : (dir === 'E' ? 'W' : 'E'));
-                                s[`spreadingNudgeSymmetryQueue_${layer}`].push({
+                                s[queueKey].push({
                                     x: mirX, y: mirY, layer: layer, dir: mirDir,
                                     isNudge: false, bypassOccupancy: true, arm: arm.dir,
                                     stepToSpawn: s.step + 1 + Math.floor(Math.random() * 3)
@@ -2217,14 +2312,14 @@ class _QuantizedProceduralEngine {
                     }
 
                     // Move the origin outward and schedule next spawn
-                    s[`spreadingNudgeNextDist_${layer}`][arm.key]++;
+                    s[distKey][arm.key]++;
                     const delay = 1 + Math.floor(Math.random() * spawnSpeed);
-                    s[`spreadingNudgeNextSpawnStep_${layer}`][arm.key] = s.step + delay;
+                    s[stepKey][arm.key] = s.step + delay;
                 }
             }
         }, { enabled: this._getGenConfig('SpreadingNudgeEnabled') ?? false, type: this._getGenConfig('SpreadingNudgeBehaviorType') ?? 'pool', growth: this._getGenConfig('SpreadingNudgeGrowthMode') ?? 'edge', bias: this._getGenConfig('SpreadingNudgeSpawnBias') ?? 'single', label: 'Spreading Nudge' });
 
-        // ── Shove Fill ─────────────────────────────────────────────────────────
+        // ── Block Filler ────────────────────────────────────────────────────────
         this.registerBehavior('shove_fill', function(s, behavior, layer) {
             const stopAfter = this._getGenConfig('ShoveFillStopAfter') ?? 0;
             if (stopAfter > 0 && s.step >= stopAfter) return;
@@ -2233,13 +2328,16 @@ class _QuantizedProceduralEngine {
             const fillRate   = 4; // Hardcoded after UI slider removal
             if (s.step < startDelay || (s.step - startDelay) % fillRate !== 0) return;
             const allowed = this._getAllowedDirs(layer);
-            const bs    = this.getBlockSize();
-            // Use logic grid half-dimensions so shove fill extends beyond the visible screen
+            // Use logic grid half-dimensions so fill extends beyond the visible screen
             const halfW = Math.floor(this.logicGridW / 2);
             const halfH = Math.floor(this.logicGridH / 2);
             const proxW = Math.max(2, Math.floor(halfW * 0.25));
             const proxH = Math.max(2, Math.floor(halfH * 0.25));
             const shoveAmount = Math.max(1, this._getGenConfig('ShoveFillAmount') ?? 1);
+
+            const isEdgeMode = behavior && behavior.growth === 'edge';
+            const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('SingleLayerMode'));
+            const targetL = usePromotion ? 1 : layer;
 
             if (!s.shoveStripsByLayer) s.shoveStripsByLayer = {}; if (!s.shoveStripsByLayer[layer]) s.shoveStripsByLayer[layer] = [];
             s.shoveStripsByLayer[layer] = s.shoveStripsByLayer[layer].filter(st => st.active);
@@ -2251,17 +2349,72 @@ class _QuantizedProceduralEngine {
                 const count = Math.min(qCount, availDirs.length);
                 const chosen = [...availDirs].sort(() => Math.random() - 0.5).slice(0, count);
 
-                for (const dir of chosen) {
-                    const isEW = dir === 'E' || dir === 'W';
-                    const width = 1 + Math.floor(Math.random() * 3);
-                    if (isEW) {
-                        const perpMid   = s.genOriginY + Math.round((Math.random() * 2 - 1) * proxH);
-                        const perpStart = perpMid - Math.floor((width - 1) / 2);
-                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginX + (dir === 'E' ? 2 : -2), active: true, phaseOff: 0 });
-                    } else {
-                        const perpMid   = s.genOriginX + Math.round((Math.random() * 2 - 1) * proxW);
-                        const perpStart = perpMid - Math.floor((width - 1) / 2);
-                        s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginY + (dir === 'S' ? 2 : -2), active: true, phaseOff: 0 });
+                if (isEdgeMode) {
+                    // Edge mode: start strips from exterior edges of existing blocks
+                    const outsideMap = s.outsideMap || this._computeTrueOutside(this.logicGridW, this.logicGridH);
+                    const gcx = this._gridCX, gcy = this._gridCY, gw = this.logicGridW, gh = this.logicGridH;
+
+                    for (const dir of chosen) {
+                        const isEW = dir === 'E' || dir === 'W';
+                        const width = 1 + Math.floor(Math.random() * 3);
+
+                        // Find blocks with an exterior edge facing this direction
+                        const edgeBlocks = [];
+                        for (const b of this.activeBlocks) {
+                            if (b.layer !== targetL) continue;
+                            let hasEdge = false;
+                            if (dir === 'E') {
+                                for (let y = b.y; y < b.y + b.h && !hasEdge; y++) {
+                                    const gx = gcx + b.x + b.w, gy = gcy + y;
+                                    if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) hasEdge = true;
+                                }
+                            } else if (dir === 'W') {
+                                for (let y = b.y; y < b.y + b.h && !hasEdge; y++) {
+                                    const gx = gcx + b.x - 1, gy = gcy + y;
+                                    if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) hasEdge = true;
+                                }
+                            } else if (dir === 'S') {
+                                for (let x = b.x; x < b.x + b.w && !hasEdge; x++) {
+                                    const gx = gcx + x, gy = gcy + b.y + b.h;
+                                    if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) hasEdge = true;
+                                }
+                            } else { // N
+                                for (let x = b.x; x < b.x + b.w && !hasEdge; x++) {
+                                    const gx = gcx + x, gy = gcy + b.y - 1;
+                                    if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) hasEdge = true;
+                                }
+                            }
+                            if (hasEdge) edgeBlocks.push(b);
+                        }
+                        if (edgeBlocks.length === 0) continue;
+
+                        const pick = edgeBlocks[Math.floor(Math.random() * edgeBlocks.length)];
+                        if (isEW) {
+                            const perpMid = pick.y + Math.floor(Math.random() * pick.h);
+                            const perpStart = perpMid - Math.floor((width - 1) / 2);
+                            const leadPos = dir === 'E' ? pick.x + pick.w : pick.x - 1;
+                            s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos, active: true, phaseOff: 0 });
+                        } else {
+                            const perpMid = pick.x + Math.floor(Math.random() * pick.w);
+                            const perpStart = perpMid - Math.floor((width - 1) / 2);
+                            const leadPos = dir === 'S' ? pick.y + pick.h : pick.y - 1;
+                            s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos, active: true, phaseOff: 0 });
+                        }
+                    }
+                } else {
+                    // Spine mode: start strips from near the spine origin
+                    for (const dir of chosen) {
+                        const isEW = dir === 'E' || dir === 'W';
+                        const width = 1 + Math.floor(Math.random() * 3);
+                        if (isEW) {
+                            const perpMid   = s.genOriginY + Math.round((Math.random() * 2 - 1) * proxH);
+                            const perpStart = perpMid - Math.floor((width - 1) / 2);
+                            s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginX + (dir === 'E' ? 2 : -2), active: true, phaseOff: 0 });
+                        } else {
+                            const perpMid   = s.genOriginX + Math.round((Math.random() * 2 - 1) * proxW);
+                            const perpStart = perpMid - Math.floor((width - 1) / 2);
+                            s.shoveStripsByLayer[layer].push({ dir, perpStart, perpEnd: perpStart + width - 1, leadPos: s.genOriginY + (dir === 'S' ? 2 : -2), active: true, phaseOff: 0 });
+                        }
                     }
                 }
             }
@@ -2286,11 +2439,9 @@ class _QuantizedProceduralEngine {
 
                     const bp = lp - step;
                     if (isEW) {
-                        // Vertical strip (X=fixed, Y=range) -> 1x1, 1x2, or 1x3 block
                         this.actionBuffer.push({ layer: layer, fn: () => this._spawnBlock(lp, strip.perpStart, 1, rangeSize, layer, false, 0, true, true, true, false, true) });
                         this.actionBuffer.push({ layer: layer, fn: () => this._spawnBlock(bp, strip.perpStart, 1, rangeSize, layer, false, 0, true, true, true, false, true) });
                     } else {
-                        // Horizontal strip (Y=fixed, X=range) -> 1x1, 2x1, or 3x1 block
                         this.actionBuffer.push({ layer: layer, fn: () => this._spawnBlock(strip.perpStart, lp, rangeSize, 1, layer, false, 0, true, true, true, false, true) });
                         this.actionBuffer.push({ layer: layer, fn: () => this._spawnBlock(strip.perpStart, bp, rangeSize, 1, layer, false, 0, true, true, true, false, true) });
                     }
@@ -2298,7 +2449,7 @@ class _QuantizedProceduralEngine {
                     strip.leadPos += step;
                 }
             }
-        }, { enabled: this._getGenConfig('ShoveFillEnabled') ?? false, type: this._getGenConfig('ShoveFillBehaviorType') ?? 'pool', growth: this._getGenConfig('ShoveFillGrowthMode') ?? 'edge', bias: this._getGenConfig('ShoveFillSpawnBias') ?? 'single', label: 'Shove Fill' });
+        }, { enabled: this._getGenConfig('ShoveFillEnabled') ?? false, type: this._getGenConfig('ShoveFillBehaviorType') ?? 'pool', growth: this._getGenConfig('ShoveFillGrowthMode') ?? 'edge', bias: this._getGenConfig('ShoveFillSpawnBias') ?? 'single', label: 'Block Filler' });
 
         // Behavior: Block Thicken — picks a random axis line and thickens blocks along it
         this.registerBehavior('block_thicken', function(s, behavior, layer) {
@@ -2307,6 +2458,7 @@ class _QuantizedProceduralEngine {
             const startDelay = this._getGenConfig('BlockThickenStartDelay') ?? 10;
             const spawnFreq  = Math.max(1, this._getGenConfig('BlockThickenSpawnFrequency') ?? 5);
             const spawnChance = (this._getGenConfig('BlockThickenSpawnChance') ?? 50) / 100;
+            const maxBlocksPerSide = this._getGenConfig('BlockThickenMaxBlocks') ?? 5;
 
             // Timing gate
             if (s.step < startDelay) return;
@@ -2315,10 +2467,13 @@ class _QuantizedProceduralEngine {
             // Chance gate
             if (Math.random() > spawnChance) return;
 
-            const bs = this.getBlockSize();
             // Use logic grid half-dimensions so block thicken extends beyond the visible screen
             const xVis = Math.floor(this.logicGridW / 2);
             const yVis = Math.floor(this.logicGridH / 2);
+
+            const isEdgeMode = behavior && behavior.growth === 'edge';
+            const spineX = s.genOriginX ?? 0;
+            const spineY = s.genOriginY ?? 0;
 
             // Pick a random axis: 0 = X (vertical line), 1 = Y (horizontal line)
             const axis = Math.random() < 0.5 ? 0 : 1;
@@ -2328,10 +2483,8 @@ class _QuantizedProceduralEngine {
             const blocks = this.activeBlocks.filter(b => b.layer === layer);
             for (const b of blocks) {
                 if (axis === 0) {
-                    // X axis — collect all unique x values covered by this block
                     for (let x = b.x; x < b.x + b.w; x++) occupiedLines.add(x);
                 } else {
-                    // Y axis — collect all unique y values covered by this block
                     for (let y = b.y; y < b.y + b.h; y++) occupiedLines.add(y);
                 }
             }
@@ -2343,7 +2496,7 @@ class _QuantizedProceduralEngine {
             const chosenLine = lineArr[Math.floor(Math.random() * lineArr.length)];
 
             // Find all blocks that intersect this line
-            const lineBlocks = blocks.filter(b => {
+            let lineBlocks = blocks.filter(b => {
                 if (axis === 0) {
                     return b.x <= chosenLine && b.x + b.w - 1 >= chosenLine;
                 } else {
@@ -2353,44 +2506,62 @@ class _QuantizedProceduralEngine {
 
             if (lineBlocks.length === 0) return;
 
-            // For each block on this line, try to add blocks on both sides along the perpendicular axis
+            // Sort blocks by distance from spine based on growth mode
+            // Spine mode: process closest-to-spine first (thicken outward from spine)
+            // Edge mode: process farthest-from-spine first (thicken inward from edge)
+            lineBlocks.sort((a, b) => {
+                const distA = axis === 0
+                    ? Math.abs((a.y + a.h / 2) - spineY)
+                    : Math.abs((a.x + a.w / 2) - spineX);
+                const distB = axis === 0
+                    ? Math.abs((b.y + b.h / 2) - spineY)
+                    : Math.abs((b.x + b.w / 2) - spineX);
+                return isEdgeMode ? (distB - distA) : (distA - distB);
+            });
+
+            // Per-side budgets: track blocks added in each direction
+            let budgetNeg = maxBlocksPerSide; // left or above
+            let budgetPos = maxBlocksPerSide; // right or below
+
             for (const b of lineBlocks) {
+                if (budgetNeg <= 0 && budgetPos <= 0) break;
+
                 if (axis === 0) {
                     // Line is vertical (X = chosenLine), thicken along X (add columns left and right)
-                    // Walk left (x-1, x-2, ...) and right (x+w, x+w+1, ...) adding 1-wide columns
-                    // as long as there are adjacent occupied cells on the perpendicular axis (Y)
-                    const thickenSide = (startX, dx) => {
+                    const thickenSide = (startX, dx, budget) => {
                         let tx = startX;
-                        while (Math.abs(tx) <= xVis) {
-                            // Check: does this column have any adjacent occupied neighbor on Y that connects?
+                        let placed = 0;
+                        while (Math.abs(tx) <= xVis && placed < budget) {
                             let hasAdjacentEdge = false;
                             for (let ty = b.y; ty < b.y + b.h; ty++) {
                                 if (this._isOccupied(tx, ty, layer)) { hasAdjacentEdge = false; break; }
-                                // Check if there's a block above or below connecting
                                 if (this._isOccupied(tx, ty - 1, layer) || this._isOccupied(tx, ty + 1, layer)) {
                                     hasAdjacentEdge = true;
                                 }
                             }
                             if (!hasAdjacentEdge) break;
-                            // Spawn a column of blocks at tx covering the same Y span
                             for (let ty = b.y; ty < b.y + b.h; ty++) {
                                 if (!this._isOccupied(tx, ty, layer)) {
                                     const ftx = tx, fty = ty;
                                     this.actionBuffer.push({ layer, fn: () => {
                                         this._spawnBlock(ftx, fty, 1, 1, layer, false, 0, true, true, true, false, true, 'block_thicken');
                                     }});
+                                    placed++;
+                                    if (placed >= budget) break;
                                 }
                             }
                             tx += dx;
                         }
+                        return placed;
                     };
-                    thickenSide(b.x - 1, -1); // Thicken left
-                    thickenSide(b.x + b.w, 1); // Thicken right
+                    budgetNeg -= thickenSide(b.x - 1, -1, budgetNeg);
+                    budgetPos -= thickenSide(b.x + b.w, 1, budgetPos);
                 } else {
                     // Line is horizontal (Y = chosenLine), thicken along Y (add rows above and below)
-                    const thickenSide = (startY, dy) => {
+                    const thickenSide = (startY, dy, budget) => {
                         let ty = startY;
-                        while (Math.abs(ty) <= yVis) {
+                        let placed = 0;
+                        while (Math.abs(ty) <= yVis && placed < budget) {
                             let hasAdjacentEdge = false;
                             for (let tx = b.x; tx < b.x + b.w; tx++) {
                                 if (this._isOccupied(tx, ty, layer)) { hasAdjacentEdge = false; break; }
@@ -2405,13 +2576,16 @@ class _QuantizedProceduralEngine {
                                     this.actionBuffer.push({ layer, fn: () => {
                                         this._spawnBlock(ftx, fty, 1, 1, layer, false, 0, true, true, true, false, true, 'block_thicken');
                                     }});
+                                    placed++;
+                                    if (placed >= budget) break;
                                 }
                             }
                             ty += dy;
                         }
+                        return placed;
                     };
-                    thickenSide(b.y - 1, -1); // Thicken above
-                    thickenSide(b.y + b.h, 1); // Thicken below
+                    budgetNeg -= thickenSide(b.y - 1, -1, budgetNeg);
+                    budgetPos -= thickenSide(b.y + b.h, 1, budgetPos);
                 }
             }
         }, { enabled: this._getGenConfig('BlockThickenEnabled') ?? false, type: this._getGenConfig('BlockThickenBehaviorType') ?? 'pool', growth: this._getGenConfig('BlockThickenGrowthMode') ?? 'edge', bias: this._getGenConfig('BlockThickenSpawnBias') ?? 'single', label: 'Block Thicken' });
@@ -2485,7 +2659,7 @@ class _QuantizedProceduralEngine {
                     }
                 }
             }
-        }, { enabled: true, type: this._getGenConfig('HoleFillerBehaviorType') ?? 'pool', growth: this._getGenConfig('HoleFillerGrowthMode') ?? 'edge', bias: this._getGenConfig('HoleFillerSpawnBias') ?? 'single', label: 'Aggressive Hole Filler' });
+        }, { enabled: true, type: this._getGenConfig('HoleFillerBehaviorType') ?? 'pool', label: 'Hole Filler' });
         // ── Axis Shift ───────────────────────────────────────────────────────
         // Treats newly placed lines of blocks as sub-axes, spawning strips
         // in all 4 directions from a point along the line — exactly like the
@@ -2596,25 +2770,74 @@ class _QuantizedProceduralEngine {
                 const usePromotion = (this.name === "QuantizedBlockGenerator" || this.getConfig('SingleLayerMode'));
                 const targetL = usePromotion ? 1 : layer;
 
+                // Compute outside map for perimeter detection
+                const outsideMap = s.outsideMap || this._computeTrueOutside(this.logicGridW, this.logicGridH);
+                const cx = this._gridCX, cy = this._gridCY, gw = this.logicGridW, gh = this.logicGridH;
+
+                // Helper: find exterior edges of a block (sides touching outside cells)
+                const getExteriorEdges = (b) => {
+                    const edges = [];
+                    // North edge
+                    for (let x = b.x; x < b.x + b.w; x++) {
+                        const gx = cx + x, gy = cy + b.y - 1;
+                        if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) {
+                            edges.push({ x, y: b.y, dir: 'N' }); break;
+                        }
+                    }
+                    // South edge
+                    for (let x = b.x; x < b.x + b.w; x++) {
+                        const gx = cx + x, gy = cy + b.y + b.h;
+                        if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) {
+                            edges.push({ x, y: b.y + b.h - 1, dir: 'S' }); break;
+                        }
+                    }
+                    // West edge
+                    for (let y = b.y; y < b.y + b.h; y++) {
+                        const gx = cx + b.x - 1, gy = cy + y;
+                        if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) {
+                            edges.push({ x: b.x, y, dir: 'W' }); break;
+                        }
+                    }
+                    // East edge
+                    for (let y = b.y; y < b.y + b.h; y++) {
+                        const gx = cx + b.x + b.w, gy = cy + y;
+                        if (gx >= 0 && gx < gw && gy >= 0 && gy < gh && outsideMap[gy * gw + gx] === 1) {
+                            edges.push({ x: b.x + b.w - 1, y, dir: 'E' }); break;
+                        }
+                    }
+                    return edges;
+                };
+
                 if (behavior.growth === 'edge') {
-                    // Pick random block from ANY existing blocks in this layer
-                    const candidates = this.activeBlocks.filter(b => b.layer === targetL);
-                    if (candidates.length > 0) {
-                        const b = candidates[Math.floor(Math.random() * candidates.length)];
-                        ox = b.x + Math.floor(Math.random() * b.w);
-                        oy = b.y + Math.floor(Math.random() * b.h);
+                    // Pick from blocks on the outer perimeter (any exterior edge)
+                    const perimCandidates = [];
+                    for (const b of this.activeBlocks) {
+                        if (b.layer !== targetL) continue;
+                        const edges = getExteriorEdges(b);
+                        if (edges.length > 0) perimCandidates.push({ block: b, edges });
+                    }
+                    if (perimCandidates.length > 0) {
+                        const pick = perimCandidates[Math.floor(Math.random() * perimCandidates.length)];
+                        const edge = pick.edges[Math.floor(Math.random() * pick.edges.length)];
+                        ox = edge.x; oy = edge.y; d = edge.dir;
                     }
                 } else {
-                    // Spine mode
-                    const axis = Math.random() < 0.5 ? 'X' : 'Y';
-                    if (axis === 'X') {
-                        ox = (this.behaviorState?.scx ?? 0) + (Math.floor(Math.random() * 41) - 20);
-                        oy = (this.behaviorState?.scy ?? 0);
-                        d = Math.random() < 0.5 ? 'N' : 'S';
-                    } else {
-                        ox = (this.behaviorState?.scx ?? 0);
-                        oy = (this.behaviorState?.scy ?? 0) + (Math.floor(Math.random() * 41) - 20);
-                        d = Math.random() < 0.5 ? 'W' : 'E';
+                    // Spine mode: only start from existing blocks on the spine
+                    const scx = this.behaviorState?.scx ?? 0;
+                    const scy = this.behaviorState?.scy ?? 0;
+                    const spineCandidates = [];
+                    for (const b of this.activeBlocks) {
+                        if (b.layer !== targetL) continue;
+                        const onYSpine = (b.x <= scx && b.x + b.w - 1 >= scx);
+                        const onXSpine = (b.y <= scy && b.y + b.h - 1 >= scy);
+                        if (!onYSpine && !onXSpine) continue;
+                        const edges = getExteriorEdges(b);
+                        if (edges.length > 0) spineCandidates.push({ block: b, edges, onXSpine, onYSpine });
+                    }
+                    if (spineCandidates.length > 0) {
+                        const pick = spineCandidates[Math.floor(Math.random() * spineCandidates.length)];
+                        const edge = pick.edges[Math.floor(Math.random() * pick.edges.length)];
+                        ox = edge.x; oy = edge.y; d = edge.dir;
                     }
                 }
 
@@ -2890,6 +3113,18 @@ class _QuantizedProceduralEngine {
             }
             this._deactivateStrip(strip);
             return;
+        }
+
+        // Deactivate bypassOccupancy strips (Spreading Nudge perps) and explorers
+        // when they move beyond the visible canvas, freeing instance slots for new spawns
+        if (strip.bypassOccupancy || strip.isExplorer) {
+            const bs = this.getBlockSize();
+            const halfVisW = Math.floor(this.g.cols / bs.w / 2);
+            const halfVisH = Math.floor(this.g.rows / bs.h / 2);
+            if (Math.abs(newHeadX) > halfVisW || Math.abs(newHeadY) > halfVisH) {
+                this._deactivateStrip(strip);
+                return;
+            }
         }
         const spawnX = dx > 0 ? strip.headX + 1 : (dx < 0 ? newHeadX : strip.headX);
         const spawnY = dy > 0 ? strip.headY + 1 : (dy < 0 ? newHeadY : strip.headY);
@@ -3237,7 +3472,7 @@ class _QuantizedProceduralEngine {
             this.behaviorState.poolIndex++;
 
             for (let l = minL; l <= maxL; l++) {
-                b.fn.call(this, b, l);
+                b.fn.call(this, s, b, l);
             }
         }
 
