@@ -72,7 +72,8 @@ class QuantizedSequenceGeneratorV2 {
                 'H-1': { step: 0, lastTempBlock: null }
             },
             spreadingNudgeNextSpawnStep: { 'V1': 0, 'V-1': 0, 'H1': 0, 'H-1': 0 },
-            spreadingNudgeSymmetryQueue: []
+            spreadingNudgeSymmetryQueue: [],
+            poolIndex: 0
         };
 
         this.currentStepOps = [];
@@ -2122,7 +2123,10 @@ class QuantizedSequenceGeneratorV2 {
             }
         }
         if (poolBehaviors.length > 0) {
-            const b = poolBehaviors[Math.floor(Math.random() * poolBehaviors.length)];
+            if (s.poolIndex === undefined) s.poolIndex = 0;
+            const b = poolBehaviors[s.poolIndex % poolBehaviors.length];
+            s.poolIndex++;
+
             for (let l = minL; l <= maxL; l++) {
                 b.fn.call(this, s, b, l);
             }

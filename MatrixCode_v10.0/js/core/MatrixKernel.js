@@ -450,45 +450,51 @@ class MatrixKernel {
     _setupTapToSpawn() {
         this._tapToSpawnIndex = 0;
 
-        // Static list — reused on every tap to avoid per-tap array allocation
-        const quantizedEffects = [
-            { name: 'QuantizedPulse', prefix: 'quantizedPulse' },
-            { name: 'QuantizedAdd', prefix: 'quantizedAdd' },
-            { name: 'QuantizedRetract', prefix: 'quantizedRetract' },
-            { name: 'QuantizedClimb', prefix: 'quantizedClimb' },
-            { name: 'QuantizedZoom', prefix: 'quantizedZoom' },
-            { name: 'QuantizedBlockGenerator', prefix: 'quantizedGenerateV2' }
-        ];
-
         const handleTap = (clientX, clientY) => {
             if (!this.config.state.tapToSpawnEnabled) return;
 
-            const eligible = quantizedEffects.filter(e =>
-                this.config.state[e.prefix + 'Enabled'] &&
-                this.config.state[e.prefix + 'TapToSpawn']
-            );
+            // Dynamically discover all registered quantized effects that are eligible for tap-to-spawn
+            const eligible = this.effectRegistry.effects
+                .filter(fx => {
+                    if (!fx.name.startsWith('Quantized')) return false;
+                    const prefix = fx.configPrefix;
+                    if (!prefix) return false;
+                    return this.config.state[prefix + 'Enabled'] && this.config.state[prefix + 'TapToSpawn'];
+                })
+                .map(fx => ({ name: fx.name, prefix: fx.configPrefix }));
+
             if (eligible.length === 0) return;
 
-            // Cycle through eligible effects
-            this._tapToSpawnIndex = this._tapToSpawnIndex % eligible.length;
+            // Ensure index is within bounds if the list of eligible effects changed
+            if (this._tapToSpawnIndex >= eligible.length) {
+                this._tapToSpawnIndex = 0;
+            }
+
             const chosen = eligible[this._tapToSpawnIndex];
-            this._tapToSpawnIndex = (this._tapToSpawnIndex + 1) % eligible.length;
 
             // Convert screen coordinates to block-grid position
             const d = this.config.derived;
             const s = this.config.state;
             const bs = this.effectRegistry.get(chosen.name);
-            if (!bs) return;
+            if (!bs) {
+                // Should not happen with dynamic discovery, but handle for safety
+                this._tapToSpawnIndex = (this._tapToSpawnIndex + 1) % eligible.length;
+                return;
+            }
+
             const blockSize = bs.getBlockSize ? bs.getBlockSize() : { w: 4, h: 4 };
             const cellW = d.cellWidth || 14;
             const cellH = d.cellHeight || 28;
 
-            // Convert viewport pixel position to block-grid coordinates
-            // cellW/cellH are in logical (post-stretch) space, so divide by stretch to convert
             const bx = clientX / (cellW * blockSize.w * s.stretchX);
             const by = clientY / (cellH * blockSize.h * s.stretchY);
 
-            this.effectRegistry.trigger(chosen.name, true, { bx, by, x: clientX, y: clientY });
+            const triggered = this.effectRegistry.trigger(chosen.name, true, { bx, by, x: clientX, y: clientY });
+            
+            // Cycle through eligible effects ONLY if trigger was successful
+            if (triggered) {
+                this._tapToSpawnIndex = (this._tapToSpawnIndex + 1) % eligible.length;
+            }
         };
 
         // Click handler on the canvas

@@ -3232,9 +3232,12 @@ class _QuantizedProceduralEngine {
         }
 
         if (poolBehaviors.length > 0) {
-            const b = poolBehaviors[Math.floor(Math.random() * poolBehaviors.length)];
+            if (this.behaviorState.poolIndex === undefined) this.behaviorState.poolIndex = 0;
+            const b = poolBehaviors[this.behaviorState.poolIndex % poolBehaviors.length];
+            this.behaviorState.poolIndex++;
+
             for (let l = minL; l <= maxL; l++) {
-                b.fn.call(this, s, b, l);
+                b.fn.call(this, b, l);
             }
         }
 
