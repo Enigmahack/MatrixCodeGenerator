@@ -1411,6 +1411,10 @@ class QuantizedBaseEffect extends AbstractEffect {
                 } else if (this.cyclesCompleted <= this.sequence.length) {
                     this._processAnimationStep();
                 } else if (this.getConfig('GeneratorTakeover') || this.name === "QuantizedBlockGenerator") {
+                    // Lazy-apply procedural engine if not already mixed into this subclass
+                    if (typeof this._attemptV2Growth !== 'function' && window._QuantizedProceduralEngine) {
+                        window._QuantizedProceduralEngine.mixin(this.constructor);
+                    }
                     this.state = 'GENERATING';
                     this._initProceduralState(true);
                     this._attemptGrowth();
@@ -2685,5 +2689,27 @@ class QuantizedBaseEffect extends AbstractEffect {
         ctx.restore();
     }
 
+    // ── No-op stubs for QuantizedProceduralEngine methods ──
+    // These are called by the base update loop / trigger path.
+    // The procedural engine mixin overrides them on subclasses that need it
+    // (QuantizedBlockGeneration, QuantizedZoomEffect, or any class that
+    // opts-in via GeneratorTakeover).
+    _initBehaviors() {}
+    _initProceduralState() {}
+    _attemptGrowth() {}
+    _performAutoActions() {}
+    _isProceduralFinished() { return false; }
+    _updateExpansionStatus() { return false; }
+
+    stop() {
+        this.active = false;
+        this.state = 'IDLE';
+        this.alpha = 0.0;
+        this.expansionPhase = 0;
+        if (this.timeoutId) { clearTimeout(this.timeoutId); this.timeoutId = null; }
+        if (this.g) this.g.clearAllOverrides();
+        this.shadowGrid = null;
+        this.shadowSim = null;
+    }
 }
 console.log('QuantizedBaseEffect loaded');

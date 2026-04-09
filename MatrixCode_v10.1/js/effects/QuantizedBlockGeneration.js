@@ -32,4 +32,5 @@ class QuantizedBlockGeneration extends QuantizedBaseEffect {
     }
 }
 
+_QuantizedProceduralEngine.mixin(QuantizedBlockGeneration);
 if (typeof window !== 'undefined') window.QuantizedBlockGeneration = QuantizedBlockGeneration;

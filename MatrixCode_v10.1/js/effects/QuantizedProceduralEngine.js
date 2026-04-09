@@ -3176,11 +3176,16 @@ class _QuantizedProceduralEngine {
     }
 }
 
-// Mix procedural engine methods into QuantizedBaseEffect
-Object.getOwnPropertyNames(_QuantizedProceduralEngine.prototype)
-    .filter(name => name !== 'constructor')
-    .forEach(name => {
-        QuantizedBaseEffect.prototype[name] =
-            _QuantizedProceduralEngine.prototype[name];
-    });
+// Targeted mixin — apply procedural engine only to subclasses that need it.
+// QuantizedBlockGeneration and QuantizedZoomEffect call mixin() in their own
+// files.  Other effects can opt-in at runtime via GeneratorTakeover (lazy
+// mixin in QuantizedBaseEffect.update).
+_QuantizedProceduralEngine.mixin = function(TargetClass) {
+    Object.getOwnPropertyNames(_QuantizedProceduralEngine.prototype)
+        .filter(name => name !== 'constructor')
+        .forEach(name => {
+            TargetClass.prototype[name] = _QuantizedProceduralEngine.prototype[name];
+        });
+};
+window._QuantizedProceduralEngine = _QuantizedProceduralEngine;
 console.log('QuantizedProceduralEngine loaded');

@@ -627,4 +627,5 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
     }
 }
 
+_QuantizedProceduralEngine.mixin(QuantizedZoomEffect);
 if (typeof window !== 'undefined') window.QuantizedZoomEffect = QuantizedZoomEffect;
