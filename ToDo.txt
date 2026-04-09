@@ -6,6 +6,6 @@ Bugs:
 UI issues: 
 Defaults for quantized generation and visuals do not contain all of the options available which show only in the override. 
 
-There's a lot of information that is available but somewhat poorly visualized. 
+There's a lot of information that is available but somewhat poorly visualized, overwhelming, or hard to digest in large amounts. Consider alternative layouts?
 
 Optimizations: 
