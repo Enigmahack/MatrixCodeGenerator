@@ -1,10 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -c MatrixCode_v10.0/js/effects/QuantizedProceduralEngine.js)",
-      "Bash(node -c MatrixCode_v10.0/js/effects/QuantizedSequenceGeneratorV2.js)",
-      "Bash(node -c MatrixCode_v10.0/js/effects/QuantizedBaseEffect.js)",
-      "Bash(node -c \"MatrixCode_v10.0/js/effects/QuantizedProceduralEngine.js\")",
+      "Bash(node -c MatrixCode_v10.1/js/effects/QuantizedProceduralEngine.js)",
+      "Bash(node -c MatrixCode_v10.1/js/effects/QuantizedSequenceGeneratorV2.js)",
+      "Bash(node -c MatrixCode_v10.1/js/effects/QuantizedBaseEffect.js)",
+      "Bash(node -c MatrixCode_v10.1/js/effects/QuantizedProceduralEngine.js)",
       "Bash(node:*)"
     ]
   }

@@ -393,12 +393,15 @@ class MatrixKernel {
      */
     _setupInputListener() {
         window.addEventListener('keydown', (e) => {
+            // Ignore OS key-repeat events to prevent double-triggering effects
+            if (e.repeat) return;
+
             // Ignore if typing in an input field or text area
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            
+
             // Ignore if in key binding mode (Double check flag)
             if (this.ui && this.ui.isKeyBindingActive) return;
-            
+
             // Ignore if modifier keys are pressed (unless we want to support them later)
             if (e.ctrlKey || e.altKey || e.metaKey) return;
 

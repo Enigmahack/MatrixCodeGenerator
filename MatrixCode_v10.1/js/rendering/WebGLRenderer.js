@@ -3849,38 +3849,47 @@ class WebGLRenderer {
             this.lastLogicGridWidth = gw;
             this.lastLogicGridHeight = gh;
             this.occupancyBuffer = new Uint8Array(gw * gh * 4);
+            fx._logicTextureDirty = true; // Force rebuild after resize
         }
 
         // 1. Prepare Data Logic (Occupancy & Source Characters)
         const totalCells = gw * gh;
         const grids = fx.layerGrids;
         if (!grids) return false;
-        
-        const g0 = grids[0], g1 = grids[1], g2 = grids[2], g3 = grids[3];
+
         const occupancy = this.occupancyBuffer;
         if (!occupancy) return false;
 
-        occupancy.fill(0);
-        for (let i = 0; i < totalCells; i++) {
-            const tidx = i * 4;
-            if (g0 && g0[i] !== -1) occupancy[tidx + 0] = 255;
-            if (g1 && g1[i] !== -1) occupancy[tidx + 1] = 255;
-            if (g2 && g2[i] !== -1) occupancy[tidx + 2] = 255;
-            if (g3 && g3[i] !== -1) occupancy[tidx + 3] = 255;
-        }
+        // Only rebuild and re-upload the occupancy texture when the logic grid
+        // has actually changed (blocks added/removed).  The flag is set by
+        // QuantizedBaseEffect._updateRenderGridLogic whenever layer grids are
+        // modified, and cleared here after the GPU upload.
+        if (fx._logicTextureDirty || isFirstCall) {
+            const g0 = grids[0], g1 = grids[1], g2 = grids[2], g3 = grids[3];
 
-        // One-shot diagnostic
-        if (isFirstCall) {
-            let occupiedCount = 0;
+            occupancy.fill(0);
             for (let i = 0; i < totalCells; i++) {
-                if (occupancy[i * 4] || occupancy[i * 4 + 1] || occupancy[i * 4 + 2] || occupancy[i * 4 + 3]) occupiedCount++;
+                const tidx = i * 4;
+                if (g0 && g0[i] !== -1) occupancy[tidx + 0] = 255;
+                if (g1 && g1[i] !== -1) occupancy[tidx + 1] = 255;
+                if (g2 && g2[i] !== -1) occupancy[tidx + 2] = 255;
+                if (g3 && g3[i] !== -1) occupancy[tidx + 3] = 255;
             }
-            console.log(`[WebGLRenderer] LineGfx first call: grid=${gw}x${gh}, occupied=${occupiedCount}/${totalCells}`);
-        }
 
-        this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
-        this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGBA, this.gl.UNSIGNED_BYTE, occupancy);
+            // One-shot diagnostic
+            if (isFirstCall) {
+                let occupiedCount = 0;
+                for (let i = 0; i < totalCells; i++) {
+                    if (occupancy[i * 4] || occupancy[i * 4 + 1] || occupancy[i * 4 + 2] || occupancy[i * 4 + 3]) occupiedCount++;
+                }
+                console.log(`[WebGLRenderer] LineGfx first call: grid=${gw}x${gh}, occupied=${occupiedCount}/${totalCells}`);
+            }
+
+            this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
+            this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGBA, this.gl.UNSIGNED_BYTE, occupancy);
+            fx._logicTextureDirty = false;
+        }
 
         // Upload GPU Glyph Lookup: charIndex R16UI texture
         const charArr = fx._charIndexArray;

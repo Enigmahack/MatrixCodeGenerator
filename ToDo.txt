@@ -1,0 +1,11 @@
+Updates: 
+Settings color themes? Choosing a color would allow the settings to select relative colors based on what the user selects.
+
+Bugs: 
+
+UI issues: 
+Defaults for quantized generation and visuals do not contain all of the options available which show only in the override. 
+
+There's a lot of information that is available but somewhat poorly visualized. 
+
+Optimizations: 

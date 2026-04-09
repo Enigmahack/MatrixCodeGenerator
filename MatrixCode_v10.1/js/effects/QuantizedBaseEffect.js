@@ -121,6 +121,7 @@ class QuantizedBaseEffect extends AbstractEffect {
             stepOccupancy: null
         };
         this._gridsDirty = true;
+        this._logicTextureDirty = true;
         this._lastRendererOpIndex = 0;
 
         // Deferred init flags — spread heavy work across frames to reduce GC pressure
@@ -2151,6 +2152,7 @@ class QuantizedBaseEffect extends AbstractEffect {
         this._outsideMapDirty = true;
         this._maskDirty = true;
         this._gridCacheDirty = true;
+        this._logicTextureDirty = true;
 
         this._lastBlocksX = this.logicGridW;
         this._lastBlocksY = this.logicGridH;
@@ -2702,11 +2704,17 @@ class QuantizedBaseEffect extends AbstractEffect {
     _updateExpansionStatus() { return false; }
 
     stop() {
+        if (this._savedBrightness !== null) {
+            this.c.state.brightness = this._savedBrightness;
+            this._savedBrightness = null;
+        }
+        QuantizedBaseEffect.isAnyQuantizedSwapping = false;
         this.active = false;
         this.state = 'IDLE';
         this.alpha = 0.0;
         this.expansionPhase = 0;
         if (this.timeoutId) { clearTimeout(this.timeoutId); this.timeoutId = null; }
+        window.removeEventListener('keydown', this._boundDebugHandler);
         if (this.g) this.g.clearAllOverrides();
         this.shadowGrid = null;
         this.shadowSim = null;
