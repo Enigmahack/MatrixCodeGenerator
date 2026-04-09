@@ -1462,7 +1462,13 @@ class QuantizedBaseEffect extends AbstractEffect {
             const isFinished = (this.timer >= durationFrames);
             const procFinished = (this.state === 'GENERATING') && this._isProceduralFinished();
 
-            if (!this.debugMode && (isFinished || procFinished)) {
+            // When generating, block growth drives termination — ignore the
+            // duration timer so generation always runs to completion.
+            const shouldEnd = (this.state === 'GENERATING')
+                ? procFinished
+                : (isFinished || procFinished);
+
+            if (!this.debugMode && shouldEnd) {
                 this.state = 'FADE_OUT';
                 this.timer = 0;
                 if (!this.hasSwapped && !this.isSwapping) {

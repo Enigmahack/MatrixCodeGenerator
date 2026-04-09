@@ -13,6 +13,7 @@ class StreamManager {
         this.streamsPerColumn = new Int16Array(grid.cols); // Track active streams count
         this.modes = this._initializeModes(config);
         this.nextSpawnFrame = 0;
+        this._isBootSpawn = true; // First spawn cycle flag for stagger logic
 
         // Reusable columns pool to avoid per-spawn allocation
         this._columnsPool = new Array(this.grid.cols);
@@ -123,6 +124,11 @@ class StreamManager {
     }
 
     _spawnStreams(s, d) {
+        // On boot for small/mobile screens, stagger the initial tracer release
+        // to prevent a wall of tracers appearing simultaneously
+        const staggerBoot = this._isBootSpawn && this.grid.cols <= 60;
+        if (this._isBootSpawn) this._isBootSpawn = false;
+
         const columns = this._columnsPool;
         for (let i = columns.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -131,6 +137,7 @@ class StreamManager {
 
         let streamCount = s.streamSpawnCount;
         let eraserCount = s.eraserSpawnCount;
+        let spawnedIdx = 0; // Track spawn order for stagger delay
 
         for (let k = 0; k < columns.length; k++) {
             const col = columns[k];
@@ -152,35 +159,48 @@ class StreamManager {
             if (eraserCount > 0 && this._canSpawnEraser(col, s.minEraserGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, true, colSpeed);
                 eraserCount--;
-                continue; 
-            } 
-            
+                continue;
+            }
+
             if (streamCount > 0 && this._canSpawnTracer(lastStream, s.minStreamGap, s.minGapTypes)) {
                 this._spawnStreamAt(col, false, colSpeed);
+                // Stagger: assign increasing delays so tracers drip in one by one
+                if (staggerBoot && spawnedIdx > 0) {
+                    const stream = this.activeStreams[this.activeStreams.length - 1];
+                    const baseInterval = Math.max(1, Math.floor((d.cycleDuration || 30) * (s.releaseInterval || 3)));
+                    stream.delay = Math.floor(spawnedIdx * (baseInterval * 0.4 + Math.random() * baseInterval * 0.3));
+                }
+                spawnedIdx++;
                 streamCount--;
-                
+
                 if (s.preferClusters && streamCount > 0 && Math.random() < 0.15) {
                     const neighbor = col + 1;
                     if (neighbor < this.grid.cols) {
                         const idxN = this.grid.getIndex(neighbor, 0);
                         let blockedN = false;
                         if (idxN !== -1 && this.grid.decays[idxN] > 0) blockedN = true;
-                        
+
                         const lastStreamN = this.lastStreamInColumn[neighbor];
-                        
+
                         let neighborSpeed = this.columnSpeeds[neighbor];
                         if (!lastStreamN || !lastStreamN.active) {
                             neighborSpeed = this._generateSpeed(s);
                             this.columnSpeeds[neighbor] = neighborSpeed;
                         }
-                        
+
                         if (!blockedN && this._canSpawnTracer(lastStreamN, s.minStreamGap, s.minGapTypes)) {
                             this._spawnStreamAt(neighbor, false, neighborSpeed);
+                            if (staggerBoot) {
+                                const ns = this.activeStreams[this.activeStreams.length - 1];
+                                const bi = Math.max(1, Math.floor((d.cycleDuration || 30) * (s.releaseInterval || 3)));
+                                ns.delay = Math.floor(spawnedIdx * (bi * 0.4 + Math.random() * bi * 0.3));
+                            }
+                            spawnedIdx++;
                             streamCount--;
                         }
                     }
                 }
-                continue; 
+                continue;
             }
         }
     }

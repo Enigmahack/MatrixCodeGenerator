@@ -326,9 +326,9 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
     }
 
     update() {
-        // During fade-out, skip base update but keep running our logic
+        // During zoom fade-out, advance fade visuals but keep running
+        // the full base update (including block generation) below
         if (this._fadingOut) {
-            const s = this.c.state;
             this._fadeOutProgress = Math.min(1.0, this._fadeOutProgress + 0.02);
             const fo = this._fadeOutProgress * this._fadeOutProgress;
 
@@ -344,13 +344,32 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
                 this._savedBrightness = null;
                 this._fadingOut = false;
                 super._terminate();
+                return;
             }
-            return;
+
+            // Force state to GENERATING so super.update() keeps running
+            // block growth during the zoom fade-out period
+            this.state = 'GENERATING';
+            this.active = true;
         }
 
         if (!this.active) return;
 
         super.update();
+
+        // Intercept the base class FADE_OUT transition — start zoom fade
+        // but keep blocks generating by forcing state back to GENERATING
+        if (this.state === 'FADE_OUT' && !this._fadingOut) {
+            if (this._stripsCaptured) {
+                this._fadingOut = true;
+                this._fadeOutProgress = 0;
+            }
+            this.state = 'GENERATING';
+        }
+        // Also catch repeated FADE_OUT transitions while already fading
+        if (this._fadingOut && this.state !== 'GENERATING') {
+            this.state = 'GENERATING';
+        }
 
         const s = this.c.state;
 
@@ -380,7 +399,8 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
         }
 
         // Derive zoom scale, opacity, and code brightness from fill ratio
-        if (this._stripsCaptured) {
+        // Skip when fading out — the fade-out block above controls these values
+        if (this._stripsCaptured && !this._fadingOut) {
             // Zoom delay: count up after strips captured; zoom scale stays frozen until done
             if (!this._zoomDelayDone) {
                 const delaySec = s.quantizedZoomDelay ?? 0;
@@ -497,36 +517,11 @@ class QuantizedZoomEffect extends QuantizedBaseEffect {
     }
 
     /**
-     * Override _isProceduralFinished to ensure generation continues until
-     * the entire logic grid is covered. In Zoom mode, the visible area
-     * changes dynamically, and the zoom scale itself is driven by the 
-     * total fill ratio of the logic grid.
+     * Delegate to the procedural engine's canvas-coverage check (inherited
+     * from the mixin). The base class now ignores the duration timer during
+     * GENERATING, so this is the sole signal for when generation is done.
      */
-    _isProceduralFinished() {
-        if (!this.renderGrid) return true;
-
-        const totalBlocks = this.logicGridW * this.logicGridH;
-        if (totalBlocks <= 0) return true;
-
-        // Use shadowRevealGrid as the definitive "completed" state for Zoom
-        const srGrid = this.shadowRevealGrid;
-        if (!srGrid) return true;
-
-        let revealed = 0;
-        for (let i = 0; i < totalBlocks; i++) {
-            if (srGrid[i] === 1) revealed++;
-        }
-
-        const fillRatio = revealed / totalBlocks;
-
-        // Ensure we don't finish until the logic grid is substantially full
-        // and the smoothed zoom has had time to catch up to the final target.
-        const s = this.c.state;
-        const maxScale = s.quantizedZoomMaxScale ?? 1.5;
-        const zoomCaughtUp = Math.abs(this.zoomScale - maxScale) < 0.05;
-
-        return (fillRatio >= 1.0) && zoomCaughtUp;
-    }
+    // _isProceduralFinished inherited from QuantizedProceduralEngine mixin
 
     _handleDebugInput(e) {
         if (e.key === 'Escape') {

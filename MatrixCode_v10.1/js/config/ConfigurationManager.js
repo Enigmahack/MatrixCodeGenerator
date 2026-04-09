@@ -1188,28 +1188,66 @@ class ConfigurationManager {
         
         // List of inheritable settings
         const inheritableSuffixes = [
-            'LineGfxColor', 'LineGfxTintOffset', 
-            'LineGfxSharpness', 'LineGfxGlowFalloff', 'LineGfxRoundness', 
-            'LineGfxMaskSoftness', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY', 
-            'LineGfxOffsetX', 'LineGfxOffsetY', 'LineGfxPersistence',
-            'LineGfxBrightnessVarianceEnabled', 'LineGfxBrightnessVarianceAmount', 'LineGfxBrightnessVarianceCoverage', 'LineGfxBrightnessVarianceDirection',
-            'GlassBloom', 'GlassBloomScaleToSize', 'GlassCompressionThreshold', 
-            'GlassRefractionEnabled', 'TriggerBrightnessSwell', 'IncludeSwellPause', 'GlassRefractionWidth', 'GlassRefractionBrightness', 
-            'GlassRefractionBrightnessEnd', 'GlassRefractionSaturation', 'GlassRefractionCompression', 
-            'GlassRefractionOffset', 'GlassRefractionGlow', 'GlassRefractionOpacity',
+            // Block Interior
+            'GlassBloom', 'GlassBloomScaleToSize', 'GlassCompressionThreshold',
+            'SingleBlockFillEnabled',
             'GlassRefractionMaskZoom',
+            // Line Appearance
+            'LineGfxColor', 'LineGfxPersistence',
+            'GlassRefractionEnabled', 'TriggerBrightnessSwell', 'IncludeSwellPause', 'GlassRefractionWidth', 'GlassRefractionBrightness',
+            'GlassRefractionBrightnessEnd', 'GlassRefractionSaturation', 'GlassRefractionCompression',
+            'GlassRefractionOffset', 'GlassRefractionGlow', 'GlassRefractionOpacity',
+            'GlassRefractionUnwrap', 'GlassRefractionMaskScale',
             'GlassRefraction3DEnabled', 'GlassRefraction3DStrength',
-            'BlockSizeBias', 'BlockShapeBias',
-            'InsideOutBlockWidth',
-            'InsideOutBlockHeight',
-            'InsideOutSnapToEdges',
-            'InsideOutGrowthMode',
-            'BlockSpawnerStopAfter', 'NudgeStopAfter', 'SpreadingNudgeStopAfter', 'ShoveFillStopAfter', 'HoleFillerStopAfter', 'BlockThickenStopAfter', 'InsideOutStopAfter', 'AxisShiftStopAfter',
-            'ShadowWorldFadeSpeed',
-            'LayerCount',
+            'LineGfxBrightnessVarianceEnabled', 'LineGfxBrightnessVarianceAmount', 'LineGfxBrightnessVarianceCoverage', 'LineGfxBrightnessVarianceDirection',
+            // Line Fine-Tuning
+            'LineGfxTintOffset',
+            'LineGfxSharpness', 'LineGfxGlowFalloff', 'LineGfxRoundness',
+            'LineGfxMaskSoftness', 'LineGfxSampleOffsetX', 'LineGfxSampleOffsetY',
+            'LineGfxOffsetX', 'LineGfxOffsetY',
             'PerimeterEchoEnabled',
             'EchoGfxDelay', 'EchoGfxDelayFadeAmount', 'EchoGfxThickness', 'EchoGfxBrightness', 'EchoGfxOpacity', 'EchoGfxIntensity', 'EchoGfxColor', 'EchoGfxSaturation', 'EchoGfxGlow',
-            'EchoGfxSampleOffsetX', 'EchoGfxSampleOffsetY', 'EchoGfxOffsetX', 'EchoGfxOffsetY'
+            'EchoGfxSampleOffsetX', 'EchoGfxSampleOffsetY', 'EchoGfxOffsetX', 'EchoGfxOffsetY',
+            // Positioning
+            'RandomStart',
+            // V2 Generator (Block Behavior) / V2 Generator
+            'SpinesFirstEnabled', 'SpineBoost', 'QuadrantCount',
+            // Spawn Behaviors — Perimeter Spawner
+            'BlockSpawnerEnabled', 'BlockSpawnerBehaviorType', 'BlockSpawnerGrowthMode', 'BlockSpawnerSpawnBias',
+            'BlockSpawnerStartDelay', 'BlockSpawnerRate', 'BlockSpawnerCount', 'BlockSpawnerDespawnRate', 'BlockSpawnerStopAfter',
+            // Spawn Behaviors — Explorer Growth
+            'NudgeEnabled', 'NudgeBehaviorType', 'NudgeGrowthMode',
+            'ExplorerMaxCount', 'ExplorerSpawnRate', 'NudgeStartDelay', 'NudgeStopAfter', 'NudgeChance',
+            // Spawn Behaviors — Spreading Nudge
+            'SpreadingNudgeEnabled', 'SpreadingNudgeBehaviorType', 'SpreadingNudgeGrowthMode', 'SpreadingNudgeSpawnBias',
+            'SpreadingNudgeStartDelay', 'SpreadingNudgeStopAfter', 'SpreadingNudgeSpawnSpeed', 'SpreadingNudgeMaxInstances', 'SpreadingNudgeRange', 'SpreadingNudgeSymmetry',
+            // Spawn Behaviors — Block Filler
+            'ShoveFillEnabled', 'ShoveFillBehaviorType', 'ShoveFillGrowthMode', 'ShoveFillSpawnBias',
+            'ShoveFillStartDelay', 'ShoveFillStopAfter', 'ShoveFillAmount',
+            // Spawn Behaviors — Hole Filler
+            'HoleFillerEnabled', 'HoleFillerBehaviorType', 'HoleFillerStartDelay', 'HoleFillerStopAfter', 'HoleFillerRate',
+            // Spawn Behaviors — Block Thicken
+            'BlockThickenEnabled', 'BlockThickenBehaviorType', 'BlockThickenGrowthMode', 'BlockThickenSpawnBias',
+            'BlockThickenStartDelay', 'BlockThickenStopAfter', 'BlockThickenSpawnChance', 'BlockThickenSpawnFrequency', 'BlockThickenMaxBlocks',
+            'BlockThickenQuadrantEnabled', 'BlockThickenMultiQuadrantChance', 'BlockThickenQuadrantRampUp',
+            // Spawn Behaviors — Trace Thicken
+            'TraceThickenEnabled', 'TraceThickenBehaviorType', 'TraceThickenGrowthMode',
+            'TraceThickenStartDelay', 'TraceThickenStopAfter', 'TraceThickenChance', 'TraceThickenFrequency', 'TraceThickenMaxDepth', 'TraceThickenWidth',
+            // Spawn Behaviors — Fill Crawler
+            'FillCrawlerEnabled', 'FillCrawlerBehaviorType', 'FillCrawlerGrowthMode',
+            'FillCrawlerStartDelay', 'FillCrawlerStopAfter', 'FillCrawlerCount', 'FillCrawlerRate', 'FillCrawlerChance',
+            // Spawn Behaviors — Inside Out Expansion
+            'InsideOutEnabled', 'InsideOutDelay', 'InsideOutStopAfter', 'InsideOutBucketSize', 'InsideOutStepsBetweenBuckets',
+            'InsideOutGrowthMode', 'InsideOutSpawnBias', 'InsideOutBlockWidth', 'InsideOutBlockHeight', 'InsideOutSnapToEdges',
+            // Spawn Behaviors — Axis Shift
+            'AxisShiftEnabled', 'AxisShiftBehaviorType', 'AxisShiftGrowthMode',
+            'AxisShiftStartDelay', 'AxisShiftStopAfter', 'AxisShiftRate', 'AxisShiftMaxAxes', 'AxisShiftMinLength', 'AxisShiftMaxLength', 'AxisShiftSpawnAmount',
+            // V2 Generator (Logic)
+            'BehaviorPool',
+            // Legacy / non-template suffixes
+            'BlockSizeBias', 'BlockShapeBias',
+            'ShadowWorldFadeSpeed',
+            'LayerCount',
             ];
 
             prefixes.forEach(prefix => {            inheritableSuffixes.forEach(suffix => {

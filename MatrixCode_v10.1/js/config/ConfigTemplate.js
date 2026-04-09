@@ -178,7 +178,6 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
         { cat: 'Effects', type: 'accordion_subheader', label: 'Playback', dep: [effectDep, prefix + "Enabled"] },
         { cat: 'Effects', id: prefix + "Speed", type: 'range', label: 'Animation Speed', min: 0.1, max: 15.0, step: 0.1, dep: [effectDep, prefix + "Enabled"], tier: 'basic', tags: ['fast', 'slow', 'motion'] },
         { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Frequency', min: 10, max: 605, step: 5, unit: 's', transform: v => v === 605 ? 'Random' : v + 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "How often this effect automatically triggers.", tags: ['timing', 'auto'] },
-        { cat: 'Effects', id: prefix + "DurationSeconds", type: 'range', label: 'Effect Duration', min: 1, max: 20, step: 0.1, unit: 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['timing', 'length'] },
 
         { cat: 'Effects', type: 'accordion_subheader', label: 'Grid Size', dep: [effectDep, prefix + "Enabled"] },
         { cat: 'Effects', id: prefix + "BlockWidthCells", type: 'range', label: 'Block Width', min: 1, max: 16, step: 1, unit: 'ch', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['size', 'width', 'grid'] },
@@ -581,14 +580,81 @@ const ConfigTemplate = [
     ...(() => {
         const defaults = [];
         const defPrefix = 'quantizedDefault';
-        QuantizedInheritableSettings.filter(s => s.sub === 'Positioning' || s.sub === 'V2 Generator (Block Behavior)' || s.sub === 'Block Interior' || s.sub === 'Line Appearance').forEach(s => {
-            if (s.sub_header) defaults.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: '!_activeEffectOverrideDefaults' });
+        const baseDep = '!_activeEffectOverrideDefaults';
+
+        // Build deps: always include baseDep, plus any original deps prefixed with defPrefix
+        function buildDeps(s) {
+            if (!s.dep) return baseDep;
+            const sDeps = Array.isArray(s.dep) ? s.dep : [s.dep];
+            const deps = [baseDep];
+            sDeps.forEach(d => {
+                if (d.startsWith('!')) deps.push('!' + defPrefix + d.substring(1));
+                else deps.push(defPrefix + d);
+            });
+            return deps;
+        }
+
+        function addSetting(s) {
+            if (s.sub_header) defaults.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: baseDep });
             const setting = { ...s };
             setting.cat = 'Effects';
             setting.id = defPrefix + s.id;
-            setting.dep = '!_activeEffectOverrideDefaults';
+            setting.dep = buildDeps(s);
             defaults.push(setting);
+        }
+
+        // Categorize settings (mirrors override grouping)
+        const visualSettings = [];
+        const behaviorSettings = [];
+        const generatorSettings = [];
+        const spawnSettings = [];
+        const logicSettings = [];
+
+        QuantizedInheritableSettings.forEach(s => {
+            if (s.sub === 'V2 Generator (Spawn Behaviors)') spawnSettings.push(s);
+            else if (s.sub === 'V2 Generator (Logic)') logicSettings.push(s);
+            else if (s.sub.startsWith('V2 Generator')) generatorSettings.push(s);
+            else if (s.sub === 'Block Interior' || s.sub === 'Line Appearance' || s.sub === 'Line Fine-Tuning') visualSettings.push(s);
+            else behaviorSettings.push(s);
         });
+
+        // Visual settings grouped by sub (Block Interior, Line Appearance, Line Fine-Tuning)
+        const visGroups = {};
+        visualSettings.forEach(s => {
+            if (!visGroups[s.sub]) visGroups[s.sub] = [];
+            visGroups[s.sub].push(s);
+        });
+        ['Block Interior', 'Line Appearance', 'Line Fine-Tuning'].forEach(subName => {
+            if (visGroups[subName]) {
+                let label = subName;
+                if (label === 'Line Appearance') label = 'Appearance';
+                if (label === 'Line Fine-Tuning') label = 'Fine-Tuning';
+                defaults.push({ cat: 'Effects', type: 'sub_accordion', label: label, dep: baseDep });
+                visGroups[subName].forEach(addSetting);
+                defaults.push({ cat: 'Effects', type: 'end_group' });
+            }
+        });
+
+        // Behavior settings (Positioning)
+        behaviorSettings.forEach(addSetting);
+
+        // Generator Settings (V2 Generator, V2 Generator (Block Behavior))
+        if (generatorSettings.length > 0) {
+            defaults.push({ cat: 'Effects', type: 'sub_accordion', label: 'Generator Settings', dep: baseDep });
+            generatorSettings.forEach(addSetting);
+            defaults.push({ cat: 'Effects', type: 'end_group' });
+        }
+
+        // Spawn Behaviors
+        if (spawnSettings.length > 0) {
+            defaults.push({ cat: 'Effects', type: 'sub_accordion', label: 'Spawn Behaviors', dep: baseDep });
+            spawnSettings.forEach(addSetting);
+            defaults.push({ cat: 'Effects', type: 'end_group' });
+        }
+
+        // Logic (BehaviorPool)
+        logicSettings.forEach(addSetting);
+
         return defaults;
     })(),
     { cat: 'Effects', type: 'end_group' },
