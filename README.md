@@ -12,6 +12,8 @@ https://github.com/Rezmason/matrix
 I'm getting tired of writing these... It started as a simple coding adventure and turned into an obsession. Here are some screenshots - moved away from Canvas2D and moved towards WebGL and GLSL. It's WAY smoother than I thought, even on an old 2013 MacBook Pro. Now with 100% more 3D! (It's still beta but it seems to work so far.)
 Everything seen here is a screenshot from the site. 
 
+https://github.com/Enigmahack/MatrixCodeGenerator/raw/refs/heads/main/Video%20Demo/Matrix_10.1.mp4
+
 <img width="1280" height="800" alt="Screenshot 2026-04-06 at 12 13 39 AM" src="https://github.com/user-attachments/assets/7f066332-6e9e-4232-9fe2-9ac1663d511d" />
 <img width="1279" height="692" alt="Screenshot 2026-04-06 at 1 14 25 AM" src="https://github.com/user-attachments/assets/91a743e8-b27f-4556-8c10-36d2f3959cfb" />
 <img width="1280" height="694" alt="Screenshot 2026-04-06 at 1 14 09 AM" src="https://github.com/user-attachments/assets/a747d844-2ee6-478a-9bfd-d1cd72b52029" />
