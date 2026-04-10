@@ -1380,7 +1380,8 @@ class UIManager {
                 valDisp.style.cursor = "pointer";
                 
                 // Set initial value
-                const initialVal = this.c.get(bindKey);
+                let initialVal = this.c.get(bindKey);
+                if (initialVal === undefined || initialVal === null) { initialVal = def.min !== undefined ? def.min : 0; this.c.state[bindKey] = initialVal; }
                 let displayVal = initialVal;
                 if (!def.transform && typeof initialVal === 'number') {
                     const step = def.step || 1;
@@ -1478,7 +1479,7 @@ class UIManager {
                 let isTouching = false;
                 let lastTapTime = 0;
 
-                inp.value = def.invert ? (def.max+def.min)-this.c.get(bindKey) : this.c.get(bindKey);                            
+                { let rv = this.c.get(bindKey); if (rv === undefined || rv === null) { rv = def.min !== undefined ? def.min : 0; this.c.state[bindKey] = rv; } inp.value = def.invert ? (def.max+def.min)-rv : rv; }
                 
                 inp.oninput = e => { 
                     if (isTouching) return; // Block native updates during touch interaction
@@ -1601,14 +1602,14 @@ class UIManager {
                 w.className = 'color-wrapper'; 
                 inp = document.createElement('input'); 
                 inp.type = 'color'; 
-                inp.value = this.c.get(bindKey); 
-                inp.id = `in-${def.id}`; 
-                inp.name = def.id; 
-                
-                inp.oninput = e => { 
-                    this.c.state[bindKey] = e.target.value; 
+                inp.value = this.c.get(bindKey) || '#000000';
+                inp.id = `in-${def.id}`;
+                inp.name = def.id;
+
+                inp.oninput = e => {
+                    this.c.state[bindKey] = e.target.value;
                     this.c.updateDerivedValues(); // Force derived update for live preview
-                }; 
+                };
                 inp.onchange = e => { this.c.set(bindKey, e.target.value); }; // Commit and refresh
                 
                 w.appendChild(inp); row.appendChild(w); 
@@ -1711,28 +1712,35 @@ class UIManager {
             else if(def.type === 'checkbox') { 
                 inp = document.createElement('input'); 
                 inp.type = 'checkbox'; 
-                inp.checked = this.c.get(bindKey); 
-                inp.onchange = e => { 
+                inp.checked = !!this.c.get(bindKey);
+                inp.onchange = e => {
                     if(e.target.checked && def.warning) alert(def.warning);
-                    this.c.set(bindKey, e.target.checked); 
-                }; 
-                row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }}; 
+                    this.c.set(bindKey, e.target.checked);
+                };
+                row.onclick = e => { if(e.target !== inp) { inp.checked = !inp.checked; inp.dispatchEvent(new Event('change')); }};
             }
-            else if(def.type === 'select') { 
-                inp = document.createElement('select'); 
+            else if(def.type === 'select') {
+                inp = document.createElement('select');
                 let options = def.options;
                 if (options === 'fonts') options = this._getFonts();
                 else if (options === 'shaders') options = this._getShaders();
                 else if (typeof options === 'function') options = options();
-                
-                (options || []).forEach(o => { 
-                    const opt = document.createElement('option'); 
-                    opt.value = o.value; 
-                    opt.textContent = o.label; 
-                    if(o.custom) opt.className = 'custom-font-opt'; 
-                    if(this.c.get(bindKey) === o.value) opt.selected = true; 
-                    inp.appendChild(opt); 
-                }); 
+
+                const curVal = this.c.get(bindKey);
+                let hasSelection = false;
+                (options || []).forEach(o => {
+                    const opt = document.createElement('option');
+                    opt.value = o.value;
+                    opt.textContent = o.label;
+                    if(o.custom) opt.className = 'custom-font-opt';
+                    if(curVal !== undefined && curVal !== null && curVal === o.value) { opt.selected = true; hasSelection = true; }
+                    inp.appendChild(opt);
+                });
+                // If no option matched (undefined config), select the first option and persist it
+                if (!hasSelection && inp.options.length > 0) {
+                    inp.options[0].selected = true;
+                    this.c.state[bindKey] = inp.options[0].value;
+                }
                 
                 inp.onchange = e => {
                     const val = e.target.value;
@@ -2170,21 +2178,22 @@ class UIManager {
      */
     _refreshControl(def) {
         if (!def) return;
-        
+
         if (def.type === 'keybinder') {
             this.updateKeyBinderVisuals(def.id);
         }
 
         const inp = document.getElementById(`in-${def.id}`);
-        if(inp) { 
+        if(inp) {
             const bindKey = def.bind || def.id;
-            const val = this.c.get(bindKey); 
-            
-            if(def.type === 'checkbox') inp.checked = val; 
+            let val = this.c.get(bindKey);
+
+            if(def.type === 'checkbox') { inp.checked = !!val; }
             else if(def.type === 'color_list') this._renderColorList(inp, def);
-            else if(def.type === 'range') { 
-                inp.value = def.invert ? (def.max+def.min)-val : val; 
-                const disp = document.getElementById(`val-${def.id}`); 
+            else if(def.type === 'range') {
+                if (val === undefined || val === null) val = def.min !== undefined ? def.min : 0;
+                inp.value = def.invert ? (def.max+def.min)-val : val;
+                const disp = document.getElementById(`val-${def.id}`);
                 if(disp) {
                     let displayVal = val;
                     if (!def.transform && typeof val === 'number') {
@@ -2192,12 +2201,21 @@ class UIManager {
                         const decimals = (step.toString().split('.')[1] || '').length;
                         displayVal = parseFloat(val.toFixed(decimals));
                     }
-                    disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || ''); 
+                    disp.textContent = def.transform ? def.transform(val) : displayVal + (def.unit || '');
                 }
             } else if (def.type === 'text') {
                 inp.value = def.transform ? def.transform(val) : (val || "");
             } else if (def.type === 'select') {
+                if (val === undefined || val === null) {
+                    // Default to first option
+                    if (inp.options.length > 0) {
+                        val = inp.options[0].value;
+                        this.c.state[bindKey] = val;
+                    }
+                }
                 inp.value = String(val);
+            } else if (def.type === 'color') {
+                inp.value = val || '#000000';
             }
         }
     }

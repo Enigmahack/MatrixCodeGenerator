@@ -10556,7 +10556,8 @@ class ConfigurationManager {
      * @returns {*} The value of the configuration setting.
      */
     get(key) {
-        return this.state[key];
+        const v = this.state[key];
+        return v !== undefined ? v : this.defaults[key];
     }
 
     /**

@@ -866,11 +866,8 @@ class QuantizedBaseEffect extends AbstractEffect {
         }
 
         // --- DEFERRED GRID CLEARING ---
-        // On re-triggers, snapshot current active indices/blocks for deferred
-        // clearing in the first update() frame.  On first-ever trigger the grid
-        // overlay buffers are already zeroed from allocation, so we can skip
-        // the clear entirely — this eliminates the first-run delay caused by
-        // filling 16+ large typed arrays synchronously.
+        // Snapshot current active indices/blocks for targeted clearing in the
+        // first update() frame.
         if (this._hasTriggeredOnce) {
             if (this.activeIndices && this.activeIndices.size > 0) {
                 this._savedActiveIndices = new Set(this.activeIndices);
@@ -905,6 +902,14 @@ class QuantizedBaseEffect extends AbstractEffect {
             if (this.sequence && this.sequence.length > 1000) {
                 this.sequence = this.sequence.slice(0, 1000);
             }
+        }
+
+        // Ensure the procedural engine mixin is applied before sequence playback.
+        // Sequences can contain nudge operations (opcode 12/13) that require _nudge(),
+        // which is defined in QuantizedProceduralEngine. Without the mixin, nudge ops
+        // are silently skipped, leaving holes in the animation on first run.
+        if (typeof this._nudge !== 'function' && window._QuantizedProceduralEngine) {
+            window._QuantizedProceduralEngine.mixin(this.constructor);
         }
 
         this.active = true;
@@ -1758,6 +1763,66 @@ class QuantizedBaseEffect extends AbstractEffect {
                     id = rect ? rect.id : 65535;
                 }
                 arr[i] = id;
+            }
+        }
+
+        // Build per-cell opacity variance map for line brightness modulation.
+        // Generated once per grid size — static across time so characters keep
+        // consistent brightness.  70% range (0.3–1.0), max 5% between neighbours.
+        this._buildCharOpacityData(cols, rows);
+    }
+
+    _buildCharOpacityData(cols, rows) {
+        const total = cols * rows;
+        // Only rebuild when grid dimensions change — opacity is static over time
+        const dimKey = (cols << 16) | rows;
+        if (this._charOpacityArray && this._charOpacityArray.length === total && this._opacityDimKey === dimKey) return;
+        this._charOpacityArray = new Uint8Array(total);
+        this._opacityDimKey = dimKey;
+        // Bump seed so the renderer knows to re-upload
+        this._opacityCoarseSeed = (this._opacityCoarseSeed || 0) + 1;
+
+        const SPACING = 14; // 70% range / 14 cells = 5% max adjacent diff
+        const coarseCols = Math.ceil(cols / SPACING) + 1;
+        const coarseRows = Math.ceil(rows / SPACING) + 1;
+        const coarseTotal = coarseCols * coarseRows;
+
+        // Fixed seed based on grid size so the pattern is stable
+        let rng = ((cols * 7919 + rows * 104729) * 2654435761) >>> 0;
+        const rand = () => { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return ((rng >>> 0) & 0xFFFF) / 65536; };
+
+        // Generate coarse grid: random values in [0.3, 1.0] (70% variance)
+        const coarse = new Float32Array(coarseTotal);
+        for (let i = 0; i < coarseTotal; i++) {
+            coarse[i] = 0.3 + rand() * 0.7;
+        }
+
+        // Bilinear interpolation from coarse to fine grid
+        const arr = this._charOpacityArray;
+        for (let y = 0; y < rows; y++) {
+            const cy = y / SPACING;
+            const cy0 = Math.min(Math.floor(cy), coarseRows - 2);
+            const cy1 = cy0 + 1;
+            const fy = cy - cy0;
+            const row0 = cy0 * coarseCols;
+            const row1 = cy1 * coarseCols;
+
+            for (let x = 0; x < cols; x++) {
+                const cx = x / SPACING;
+                const cx0 = Math.min(Math.floor(cx), coarseCols - 2);
+                const cx1 = cx0 + 1;
+                const fx = cx - cx0;
+
+                const v00 = coarse[row0 + cx0];
+                const v10 = coarse[row0 + cx1];
+                const v01 = coarse[row1 + cx0];
+                const v11 = coarse[row1 + cx1];
+
+                const top = v00 + (v10 - v00) * fx;
+                const bot = v01 + (v11 - v01) * fx;
+                const val = top + (bot - top) * fy;
+
+                arr[y * cols + x] = Math.round(val * 255);
             }
         }
     }

@@ -651,6 +651,7 @@ class WebGLRenderer {
                 uniform vec2 u_atlasSize;                    // atlas canvas dimensions
                 uniform vec2 u_gridDims;                     // [cols, rows] of character grid
                 uniform vec2 u_screenCellSize;               // (cellWidth*scale, cellHeight*scale) for atlas mapping
+                uniform sampler2D u_charOpacityGrid;         // R8: per-cell opacity variance (0.5-1.0)
 
                 out vec4 fragColor;
 
@@ -735,7 +736,10 @@ class WebGLRenderer {
                     vec2 atlasOffset = (cellFrac - 0.5) * u_screenCellSize;
                     vec2 uv = (atlasCenter + atlasOffset) / u_atlasSize;
 
-                    return texture(u_atlasTexture, uv).a;
+                    float glyphAlpha = texture(u_atlasTexture, uv).a;
+                    // Apply per-cell opacity variance from smooth noise map
+                    float cellOpacity = texelFetch(u_charOpacityGrid, cell, 0).r;
+                    return glyphAlpha * cellOpacity;
                 }
 
                 void main() {
@@ -2646,6 +2650,20 @@ class WebGLRenderer {
         this.lastCharIndexRows = 0;
         this.lastCharIndexSeed = -1;
 
+        // Per-cell opacity variance texture (R8) for source grid brightness modulation
+        this.charOpacityTexture = this.gl.createTexture();
+        if (this.charOpacityTexture) {
+            this.gl.bindTexture(this.gl.TEXTURE_2D, this.charOpacityTexture);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.R8, 1, 1, 0, this.gl.RED, this.gl.UNSIGNED_BYTE, new Uint8Array([255]));
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        }
+        this.lastCharOpacityCols = 0;
+        this.lastCharOpacityRows = 0;
+        this.lastCharOpacitySeed = -1;
+
         // Shadow World GPU Blending textures
         const createNearestTexture = () => {
             const tex = this.gl.createTexture();
@@ -3472,10 +3490,10 @@ class WebGLRenderer {
         this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.logicGridTexture);
         this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, gw, gh, this.gl.RGBA, this.gl.UNSIGNED_BYTE, occupancy);
-        
+
         // 2. Prepare Uniforms
         const scale = s.resolution || 1.0;
-        const gridPixW = fx.g.cols * d.cellWidth * scale; 
+        const gridPixW = fx.g.cols * d.cellWidth * scale;
         const gridPixH = fx.g.rows * d.cellHeight * scale;
         const screenStepX = d.cellWidth * s.stretchX * scale;
         const screenStepY = d.cellHeight * s.stretchY * scale;
@@ -3860,11 +3878,14 @@ class WebGLRenderer {
         const occupancy = this.occupancyBuffer;
         if (!occupancy) return false;
 
-        // Only rebuild and re-upload the occupancy texture when the logic grid
-        // has actually changed (blocks added/removed).  The flag is set by
-        // QuantizedBaseEffect._updateRenderGridLogic whenever layer grids are
-        // modified, and cleared here after the GPU upload.
-        if (fx._logicTextureDirty || isFirstCall) {
+        // Always rebuild and re-upload the per-layer occupancy texture.
+        // _renderQuantizedShadows (shadow mask pass) overwrites logicGridTexture
+        // with shadow reveal data every frame BEFORE this pass runs, so we must
+        // always restore the per-layer occupancy (R=L0, G=L1, B=L2, A=L3) here.
+        // Skipping this on frames where _logicTextureDirty is false causes the
+        // line shader to read shadow data instead of layer data, producing
+        // flickering lines on the first run and visual artifacts between steps.
+        {
             const g0 = grids[0], g1 = grids[1], g2 = grids[2], g3 = grids[3];
 
             occupancy.fill(0);
@@ -3907,6 +3928,24 @@ class WebGLRenderer {
             }
             this.lastCharIndexSeed = fx.lastGridSeed;
         }
+
+        // Upload per-cell opacity variance R8 texture
+        const opArr = fx._charOpacityArray;
+        if (opArr && fx._opacityCoarseSeed !== this.lastCharOpacitySeed) {
+            const ciCols = fx.g.cols, ciRows = fx.g.rows;
+            if (opArr.length >= ciCols * ciRows) {
+                this.gl.activeTexture(this.gl.TEXTURE7);
+                this.gl.bindTexture(this.gl.TEXTURE_2D, this.charOpacityTexture);
+                if (ciCols !== this.lastCharOpacityCols || ciRows !== this.lastCharOpacityRows) {
+                    this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.R8, ciCols, ciRows, 0, this.gl.RED, this.gl.UNSIGNED_BYTE, opArr);
+                    this.lastCharOpacityCols = ciCols;
+                    this.lastCharOpacityRows = ciRows;
+                } else {
+                    this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, ciCols, ciRows, this.gl.RED, this.gl.UNSIGNED_BYTE, opArr);
+                }
+                this.lastCharOpacitySeed = fx._opacityCoarseSeed;
+            }
+        }
         this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 4);
 
         const prog = this.lineProgram;
@@ -3948,6 +3987,7 @@ class WebGLRenderer {
         }
         sharedUniforms.u_gridDims = [fx.g.cols, fx.g.rows];
         sharedUniforms.u_screenCellSize = [d.cellWidth * scale, d.cellHeight * scale];
+        sharedUniforms.u_charOpacityGrid = 8;
         sharedUniforms.u_intensity = fxState.intensity;
         sharedUniforms.u_glow = fxState.glow;
         sharedUniforms.u_thickness = fxState.thickness;
@@ -3971,6 +4011,7 @@ class WebGLRenderer {
         commonTextures[3] = this.shadowMaskTex;
         commonTextures[4] = this.sourceGridTexture;
         commonTextures[5] = this.charIndexTexture;
+        commonTextures[8] = this.charOpacityTexture;
         // Upload shared glyph atlas to GL texture for GPU glyph lookup
         if (glyphAtlas && glyphAtlas.canvas) {
             this.gl.activeTexture(this.gl.TEXTURE7); // Scratch unit for uploads

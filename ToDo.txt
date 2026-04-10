@@ -1,11 +1,15 @@
 Updates: 
+[DO LATER, IGNORE]
 Settings color themes? Choosing a color would allow the settings to select relative colors based on what the user selects.
+
+[DO NOW]
+In the effects, allow the slider to go to 0 - this keeps the effect enabled, but only manually triggered and never auto-runs. 
 
 Bugs: 
 
 UI issues: 
-Defaults for quantized generation and visuals do not contain all of the options available which show only in the override. 
-
+[DO LATER, IGNORE]
 There's a lot of information that is available but somewhat poorly visualized, overwhelming, or hard to digest in large amounts. Consider alternative layouts?
-
-Optimizations: 
+[DO NOW]
+Quantized Zoom: Fill Zoom should be called "Border Character Zoom"
+Remove Zoom Speed (Quantized Zoom effect)

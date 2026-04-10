@@ -301,6 +301,13 @@ class EffectRegistry {
             return;
         }
 
+        // Frequency of 0 means manual-only — never auto-trigger
+        const freqSeconds = this.config.get(fx.frequencyKey);
+        if (freqSeconds === 0) {
+            this._managedTimers.delete(fx.name);
+            return;
+        }
+
         // Initialize timer if missing
         if (!this._managedTimers.has(fx.name)) {
             this._resetTimer(fx);

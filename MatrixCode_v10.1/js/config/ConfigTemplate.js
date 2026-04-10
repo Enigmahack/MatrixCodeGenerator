@@ -31,7 +31,7 @@ const QuantizedInheritableSettings = [
     { sub: 'Line Appearance', id: 'GlassRefractionOffset', type: 'range', label: 'Edge Offset', min: 0.0, max: 0.5, step: 0.01, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Shifts the peak of the refraction band away from the edge center.", tags: ['shift', 'position'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
     { sub: 'Line Appearance', id: 'GlassRefractionUnwrap', type: 'checkbox', label: 'Unwrap', dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Samples content from the original position instead of mirroring it. Line shape and positioning remain the same.", tags: ['overlay', 'flat', 'simple'] },
     { sub: 'Line Appearance', id: 'GlassRefractionMaskScale', type: 'range', label: 'Character Scale', min: 0.5, max: 3.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Scales the sampled characters inside the refraction band. 1 is normal size. Line shape and width are unaffected.", tags: ['zoom', 'scale', 'size'] },
-    { sub: 'Block Interior', id: 'GlassRefractionMaskZoom', type: 'range', label: 'Fill Zoom', min: 0.1, max: 5.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Zooms the entire source grid sample around the screen center. Unlike Character Scale which zooms per-cell, this zooms everything.", tags: ['zoom', 'global', 'size'] },
+    { sub: 'Block Interior', id: 'GlassRefractionMaskZoom', type: 'range', label: 'Border Character Zoom', min: 0.1, max: 5.0, step: 0.05, dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Zooms the entire source grid sample around the screen center. Unlike Character Scale which zooms per-cell, this zooms everything.", tags: ['zoom', 'global', 'size'] },
 
     { sub: 'Line Appearance', sub_header: 'Rounded Shading', id: 'GlassRefraction3DEnabled', type: 'checkbox', label: 'Enable Rounding', dep: 'GlassRefractionEnabled', tier: 'advanced', description: "Adds cylindrical shading to refraction lines — edges darken, center stays bright — for a rounded look.", tags: ['rounded', 'cylinder', 'shading'] },
     { sub: 'Line Appearance', id: 'GlassRefraction3DStrength', type: 'range', label: 'Rounding Strength', min: 0.0, max: 2.0, step: 0.01, dep: 'GlassRefraction3DEnabled', tier: 'advanced', description: "Intensity of the cylindrical shading. 0.3 is subtle, 1.0 is dramatic, 2.0 is extreme.", tags: ['depth', 'intensity', 'shading'], unit: '%', transform: v => (v * 100).toFixed(0) + '%' },
@@ -177,7 +177,7 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
 
         { cat: 'Effects', type: 'accordion_subheader', label: 'Playback', dep: [effectDep, prefix + "Enabled"] },
         { cat: 'Effects', id: prefix + "Speed", type: 'range', label: 'Animation Speed', min: 0.1, max: 15.0, step: 0.1, dep: [effectDep, prefix + "Enabled"], tier: 'basic', tags: ['fast', 'slow', 'motion'] },
-        { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Frequency', min: 10, max: 605, step: 5, unit: 's', transform: v => v === 605 ? 'Random' : v + 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "How often this effect automatically triggers.", tags: ['timing', 'auto'] },
+        { cat: 'Effects', id: prefix + "FrequencySeconds", type: 'range', label: 'Frequency', min: 0, max: 605, step: 5, unit: 's', transform: v => v === 0 ? 'Manual' : v === 605 ? 'Random' : v + 's', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', description: "How often this effect automatically triggers. 0 = manual only (never auto-triggers).", tags: ['timing', 'auto'] },
 
         { cat: 'Effects', type: 'accordion_subheader', label: 'Grid Size', dep: [effectDep, prefix + "Enabled"] },
         { cat: 'Effects', id: prefix + "BlockWidthCells", type: 'range', label: 'Block Width', min: 1, max: 16, step: 1, unit: 'ch', dep: [effectDep, prefix + "Enabled"], tier: 'advanced', tags: ['size', 'width', 'grid'] },
@@ -233,7 +233,6 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
         visualSettings.push({ cat: 'Effects', type: 'accordion_subheader', label: 'Zoom Settings', dep: overrideDep });
         visualSettings.push({ cat: 'Effects', id: prefix + 'ZoomEnabled', type: 'checkbox', label: 'Enable Zoom Effect', dep: overrideDep, tier: 'basic', description: 'Captures a high-resolution snapshot of the falling code at trigger time and progressively magnifies it inside the expanding blocks.', tags: ['zoom', 'magnify', 'scale'], sub: 'Block Interior' });
         visualSettings.push({ cat: 'Effects', id: prefix + 'Opacity', type: 'range', label: 'Zoom Opacity', min: 0.0, max: 1.0, step: 0.05, unit: '%', transform: v => (v * 100).toFixed(0) + '%', dep: zoomDep, tier: 'basic', description: 'Controls the opacity of the zoomed content inside the expanding blocks.', tags: ['alpha', 'transparency', 'fade'], sub: 'Block Interior' });
-        visualSettings.push({ cat: 'Effects', id: prefix + 'ZoomRate', type: 'range', label: 'Zoom Speed', min: 0.1, max: 5.0, step: 0.1, dep: zoomDep, tier: 'basic', description: 'How quickly the snapshot content zooms in.', tags: ['speed', 'rate', 'fast'], sub: 'Block Interior' });
         visualSettings.push({ cat: 'Effects', id: prefix + 'MaxScale', type: 'range', label: 'Max Zoom', min: 0, max: 2.0, step: 0.05, dep: zoomDep, tier: 'advanced', description: 'Maximum zoom magnification. 0 disables zoom animation (stays at 1x). The 2x capture keeps content sharp up to 2.0x.', tags: ['scale', 'max', 'limit'], sub: 'Block Interior' });
         visualSettings.push({ cat: 'Effects', id: prefix + 'BackgroundBrightness', type: 'range', label: 'Zoom Background Brightness', min: 0, max: 100, step: 1, unit: '%', dep: zoomDep, tier: 'basic', description: 'Controls how bright the background code remains during zoom. 100% is full normal brightness; 0% dims it completely.', tags: ['brightness', 'dim', 'background'], sub: 'Block Interior' });
         visualSettings.push({ cat: 'Effects', id: prefix + 'Delay', type: 'range', label: 'Zoom Delay', min: 0, max: 5.0, step: 0.1, unit: 's', dep: zoomDep, tier: 'advanced', description: 'Seconds to wait before the zoom begins after trigger.', tags: ['delay', 'wait', 'timing'], sub: 'Block Interior' });
@@ -257,7 +256,8 @@ const generateQuantizedEffectSettings = (prefix, label, action) => {
             settings.push({ cat: 'Effects', type: 'sub_accordion', label: label, dep: overrideDep });
             visGroups[subName].forEach(s => {
                 if (s.sub_header) {
-                    settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: overrideDep });
+                    const headerDep = s.dep ? [...overrideDep, ...(Array.isArray(s.dep) ? s.dep : [s.dep])] : overrideDep;
+                    settings.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: headerDep });
                 }
                 settings.push(s);
             });
@@ -448,7 +448,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'button', label: 'Trigger Pulse Now', action: 'pulse', class: 'btn-warn', tier: 'basic', tags: ['wave', 'ripple', 'action'] },
     { cat: 'Effects', id: 'pulseEnabled', type: 'checkbox', label: 'Enable Pulses', tier: 'basic', tags: ['wave', 'auto'], description: 'Periodically triggers a wave of light that clears the screen.' },
     { cat: 'Effects', id: 'pulseMovieAccurate', type: 'checkbox', label: 'Movie Accurate', dep: 'pulseEnabled', tier: 'advanced', description: "Enables movie-accurate timing and visuals, disabling custom controls.", tags: ['real', 'original'] },
-    { cat: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', tier: 'advanced', transform: v => v === 500 ? 'Random' : v + 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], description: 'Seconds between automatic pulse triggers.', tags: ['timing', 'auto'] },
+    { cat: 'Effects', id: 'pulseFrequencySeconds', type: 'range', label: 'Frequency', min: 0, max: 500, step: 1, unit: 's', tier: 'advanced', transform: v => v === 0 ? 'Manual' : v === 500 ? 'Random' : v + 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], description: 'Seconds between automatic pulse triggers. 0 = manual only.', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'pulseDelaySeconds', type: 'range', label: 'Delay', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: 'Wait time before the pulse expansion begins.', tags: ['timing', 'wait'] },
     { cat: 'Effects', id: 'pulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['pulseEnabled', '!pulseMovieAccurate'], tier: 'advanced', description: 'Total time the pulse takes to complete.', tags: ['timing', 'length'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: ['pulseEnabled', '!pulseMovieAccurate'] },
@@ -468,7 +468,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'button', label: 'Trigger Clear Pulse Now', action: 'clearpulse', class: 'btn-warn', tier: 'basic', tags: ['wave', 'reveal', 'action'] },
     { cat: 'Effects', id: 'clearPulseEnabled', type: 'checkbox', label: 'Enable Clear Pulse', tier: 'basic', tags: ['wave', 'reveal', 'auto'], description: 'Similar to pulse, but reveals code in its path.' },
     { cat: 'Effects', id: 'clearPulseMovieAccurate', type: 'checkbox', label: 'Movie Accurate', dep: 'clearPulseEnabled', tier: 'advanced', description: "Enables movie-accurate visual artifacts (tearing/lag) without dimming the screen.", tags: ['real', 'original'] },
-    { cat: 'Effects', id: 'clearPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', tier: 'advanced', transform: v => v === 500 ? 'Random' : v + 's', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], tags: ['timing', 'auto'] },
+    { cat: 'Effects', id: 'clearPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 0, max: 500, step: 1, unit: 's', tier: 'advanced', transform: v => v === 0 ? 'Manual' : v === 500 ? 'Random' : v + 's', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], description: '0 = manual only.', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'clearPulseDurationSeconds', type: 'range', label: 'Duration', min: 0.1, max: 5, step: 0.1, unit: 's', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], tier: 'advanced', tags: ['timing', 'length'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'] },
     { cat: 'Effects', id: 'clearPulseUseTracerGlow', type: 'checkbox', label: 'Use Tracer Glow', dep: ['clearPulseEnabled', '!clearPulseMovieAccurate'], tier: 'advanced', tags: ['light', 'bright'] },
@@ -484,7 +484,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'sub_accordion', label: 'Pulse Storm' },
     { cat: 'Effects', type: 'button', label: 'Trigger Pulse Storm Now', action: 'minipulse', class: 'btn-warn', tier: 'basic', tags: ['weather', 'chaos', 'action'] },
     { cat: 'Effects', id: 'miniPulseEnabled', type: 'checkbox', label: 'Enable Storms', tier: 'basic', tags: ['auto', 'chaos'], description: 'Randomly triggers small localized pulses (Pulse Storm).' },
-    { cat: 'Effects', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'miniPulseEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
+    { cat: 'Effects', id: 'miniPulseFrequencySeconds', type: 'range', label: 'Frequency', min: 0, max: 500, step: 1, unit: 's', transform: v => v === 0 ? 'Manual' : v === 500 ? 'Random' : v + 's', dep: 'miniPulseEnabled', tier: 'advanced', description: '0 = manual only.', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'miniPulseDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, unit: 's', dep: 'miniPulseEnabled', tier: 'advanced', tags: ['timing', 'length'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'miniPulseEnabled' },
     { cat: 'Effects', id: 'miniPulseUseTracerGlow', type: 'checkbox', label: 'Use Tracer Glow', dep: 'miniPulseEnabled', tier: 'advanced', tags: ['light', 'bright'] },
@@ -499,7 +499,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'sub_accordion', label: 'Deja Vu' },
     { cat: 'Effects', type: 'button', label: 'Trigger Deja Vu Now', action: 'dejavu', class: 'btn-warn', tier: 'basic', tags: ['glitch', 'error', 'action'] },
     { cat: 'Effects', id: 'dejaVuEnabled', type: 'checkbox', label: 'Enable Deja Vu', tier: 'basic', tags: ['auto', 'glitch'], description: 'Triggers a glitchy rewind effect periodically.' },
-    { cat: 'Effects', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
+    { cat: 'Effects', id: 'dejaVuFrequencySeconds', type: 'range', label: 'Frequency', min: 0, max: 500, step: 1, unit: 's', transform: v => v === 0 ? 'Manual' : v === 500 ? 'Random' : v + 's', dep: 'dejaVuEnabled', tier: 'advanced', description: '0 = manual only.', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'dejaVuDurationSeconds', type: 'range', label: 'Duration', min: 1, max: 10, step: 0.1, unit: 's', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['timing', 'length'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'dejaVuEnabled' },
     { cat: 'Effects', id: 'dejaVuMinRectHeight', type: 'range', label: 'Minimum Thickness', min: 2, max: 5, unit: 'rows', dep: 'dejaVuEnabled', tier: 'advanced', tags: ['size', 'short'] },
@@ -515,7 +515,7 @@ const ConfigTemplate = [
     { cat: 'Effects', type: 'sub_accordion', label: 'Superman' },
     { cat: 'Effects', type: 'button', label: 'Trigger Superman', action: 'superman', class: 'btn-warn', tier: 'basic', tags: ['lightning', 'physics', 'action'] },
     { cat: 'Effects', id: 'supermanEnabled', type: 'checkbox', label: 'Enable Superman Effects', tier: 'basic', tags: ['auto', 'lightning'], description: 'Enables physics-based lightning bolt effects.' },
-    { cat: 'Effects', id: 'supermanFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'supermanEnabled', tier: 'advanced', tags: ['timing', 'auto'] },
+    { cat: 'Effects', id: 'supermanFrequencySeconds', type: 'range', label: 'Frequency', min: 0, max: 500, step: 1, unit: 's', transform: v => v === 0 ? 'Manual' : v === 500 ? 'Random' : v + 's', dep: 'supermanEnabled', tier: 'advanced', description: '0 = manual only.', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'supermanDurationSeconds', type: 'range', label: 'Duration', min: 0.5, max: 6.0, step: 0.1, unit: 's', dep: 'supermanEnabled', tier: 'advanced', tags: ['timing', 'length'] },
     { cat: 'Effects', type: 'accordion_subheader', label: 'Look', dep: 'supermanEnabled' },
     { cat: 'Effects', id: 'supermanGlow', type: 'range', label: 'Glow amount', min: 1, max: 10, dep: 'supermanEnabled', tier: 'advanced', description: 'Intensity of the lightning glow.', tags: ['bloom', 'bright'] },
@@ -535,7 +535,7 @@ const ConfigTemplate = [
 
     { cat: 'Effects', type: 'accordion_subheader', label: 'Crash Sequence' },
     { cat: 'Effects', id: 'crashEnabled', type: 'checkbox', label: 'Enable Crash', tier: 'basic', tags: ['auto', 'error', 'stop'], description: 'Simulates a system failure with shadowbox blocks and character infection.' },
-    { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 50, max: 500, step: 1, unit: 's', transform: v => v === 500 ? 'Random' : v + 's', dep: 'crashEnabled', tier: 'advanced', description: 'Seconds between automatic crash triggers.', tags: ['timing', 'auto'] },
+    { cat: 'Effects', id: 'crashFrequencySeconds', type: 'range', label: 'Frequency', min: 0, max: 500, step: 1, unit: 's', transform: v => v === 0 ? 'Manual' : v === 500 ? 'Random' : v + 's', dep: 'crashEnabled', tier: 'advanced', description: 'Seconds between automatic crash triggers. 0 = manual only.', tags: ['timing', 'auto'] },
     { cat: 'Effects', id: 'crashDurationSeconds', type: 'range', label: 'Duration', min: 5, max: 120, step: 5, unit: 's', dep: 'crashEnabled', tier: 'advanced', description: 'Total time the crash effect lasts.', tags: ['timing', 'length'] },
 
     { cat: 'Effects', type: 'sub_accordion', label: 'Crash Visuals', dep: 'crashEnabled' },
@@ -595,7 +595,7 @@ const ConfigTemplate = [
         }
 
         function addSetting(s) {
-            if (s.sub_header) defaults.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: baseDep });
+            if (s.sub_header) defaults.push({ cat: 'Effects', type: 'accordion_subheader', label: s.sub_header, dep: buildDeps(s) });
             const setting = { ...s };
             setting.cat = 'Effects';
             setting.id = defPrefix + s.id;
